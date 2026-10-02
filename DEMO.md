@@ -23,7 +23,7 @@ Or on a computer with Node: `npm install` then `npm run keys`.
 
 ## 3. Vercel (free Hobby plan)
 
-1. vercel.com → **Add New… → Project** → import the GitHub repository `Azaxek/OpenTip`.
+1. vercel.com → **Add New… → Project** → import the GitHub repository `Azaxek/OpenTip-Tipping-Application`.
 2. Before clicking Deploy, open **Environment Variables** and add:
 
 | Name | Value |
