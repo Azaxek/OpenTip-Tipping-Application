@@ -1,5 +1,7 @@
 # OpenTip
 
+**Live demo:** [opentip-demo.vercel.app](https://opentip-demo.vercel.app/)  ·  **Built with:** Next.js 16, TypeScript, Tailwind, PostgreSQL (row-level security), Cloudflare R2 + Turnstile, Web Push
+
 A free, self-hostable **anonymous tip line** for Crime Stoppers programs, schools and districts. It is built to match the working feature set of commercial products such as P3 Tips / P3 Campus, with no per-seat or per-program license, and to put **tipster anonymity ahead of convenience** everywhere the two conflict.
 
 > **Not a 911 replacement.** The tip form is not monitored in real time. A non-removable "call 911" banner is shown above every form. Read [ESCALATION-PROTOCOL.md](ESCALATION-PROTOCOL.md) before you launch.
@@ -45,7 +47,7 @@ APP_URL=http://localhost:3000
 
 Full click-by-click steps are in [DEPLOYMENT.md](DEPLOYMENT.md). In short: GitHub + Vercel Hobby + Neon (or Supabase) + Cloudflare (R2 and Turnstile), optionally Resend for email alerts. Nothing has a per-tip or per-seat cost.
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAzaxek%2FOpenTip&env=DATABASE_URL,APP_SECRET,SETUP_TOKEN,CRON_SECRET,APP_URL,S3_ENDPOINT,S3_BUCKET,S3_ACCESS_KEY_ID,S3_SECRET_ACCESS_KEY,NEXT_PUBLIC_TURNSTILE_SITE_KEY,TURNSTILE_SECRET_KEY&envDescription=See%20DEPLOYMENT.md%20for%20where%20each%20value%20comes%20from)
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2FAzaxek%2FOpenTip-Tipping-Application&env=DATABASE_URL,APP_SECRET,SETUP_TOKEN,CRON_SECRET,APP_URL,S3_ENDPOINT,S3_BUCKET,S3_ACCESS_KEY_ID,S3_SECRET_ACCESS_KEY,NEXT_PUBLIC_TURNSTILE_SITE_KEY,TURNSTILE_SECRET_KEY&envDescription=See%20DEPLOYMENT.md%20for%20where%20each%20value%20comes%20from)
 
 (If you fork this repository, change the address in the button link to your fork.)
 
