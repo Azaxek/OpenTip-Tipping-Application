@@ -2,19 +2,19 @@ import { HBars, Stat, VBars } from '@/components/staff/Charts';
 import { Card, PageTitle } from '@/components/staff/ui';
 import { report } from '@/lib/analytics';
 import { withOrg } from '@/lib/db';
+import { dayIn } from '@/lib/time';
 import { requireAdmin } from '@/lib/session';
 
 export const metadata = { title: 'Analytics' };
 
-const day = (d: Date) => d.toISOString().slice(0, 10);
 const hrs = (n: number | null) => (n == null ? '—' : n < 1 ? `${Math.round(n * 60)} min` : `${n} h`);
 
 export default async function Analytics({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const s = await requireAdmin();
   const sp = await searchParams;
-  const today = new Date();
-  const from = /^\d{4}-\d{2}-\d{2}$/.test(sp.from ?? '') ? sp.from! : day(new Date(today.getTime() - 30 * 86400_000));
-  const to = /^\d{4}-\d{2}-\d{2}$/.test(sp.to ?? '') ? sp.to! : day(today);
+  const tz = (await withOrg(s.orgId, (q) => q<{ timezone: string }>('select timezone from organizations')))[0].timezone;
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(sp.from ?? '') ? sp.from! : dayIn(tz, 30);
+  const to = /^\d{4}-\d{2}-\d{2}$/.test(sp.to ?? '') ? sp.to! : dayIn(tz);
   const bucket = sp.bucket === 'week' || sp.bucket === 'month' ? sp.bucket : 'day';
   const r = await report(s, { from, to, bucket, locationId: sp.location, categoryId: sp.category });
   const opts = await withOrg(s.orgId, async (q) => ({
@@ -26,6 +26,7 @@ export default async function Analytics({ searchParams }: { searchParams: Promis
   return (
     <div className="space-y-4">
       <PageTitle>Analytics</PageTitle>
+      <p className="-mt-2 text-sm text-slate-700">Days follow your program&apos;s time zone ({tz.replace('_', ' ')}). Change it in Settings.</p>
       <form method="get" className="card grid grid-cols-2 items-end gap-3 md:grid-cols-6">
         <label className="text-xs font-semibold">From<input type="date" name="from" defaultValue={from} className={sel} /></label>
         <label className="text-xs font-semibold">To<input type="date" name="to" defaultValue={to} className={sel} /></label>

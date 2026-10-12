@@ -31,6 +31,10 @@ export const TIPSTER_DATA: Record<string, Record<string, string>> = {
     claim_locked_until: 'a temporary lock time after too many wrong claim-code tries',
     created_at: 'when the tip was submitted',
     updated_at: 'when the tip last changed (used to decide when it is deleted)',
+    source: 'whether you used the website or a staff member typed in your call or visit',
+    watch_hits: "which words from the organization's own watch list appear in your text (so staff can notice serious reports quickly)",
+    waiting_since: 'when a staff reply became due (used to measure response times)',
+    bulletin_id: 'the public case bulletin you chose to tip about, if any',
   },
   messages: {
     id: 'a random message id',

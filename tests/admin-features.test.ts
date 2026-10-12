@@ -164,3 +164,20 @@ describe('queue filters', () => {
     expect((await listQueue(admin, { sort: 'oldest' }))[0].category).toBe('Theft');
   });
 });
+
+describe('analytics days follow the program\'s own time zone', () => {
+  it('counts a 9:30 pm Central tip on that Central day, not on the next UTC day, and shows it in the right bucket', async () => {
+    const { org, admin } = await makeOrg('crime_stoppers', { timezone: 'America/Chicago' });
+    await createTip(org, { categoryId: await categoryId(org, 'Fraud'), description: 'x', passcode: 'hunter22' });
+    // 2026-03-05 03:30 UTC is 2026-03-04 21:30 in Chicago (CST, UTC-6)
+    await system((q) => q("update tips set created_at = '2026-03-05T03:30:00Z' where org_id = $1", [org.id]));
+    const chicagoDay = await report(admin, { from: '2026-03-04', to: '2026-03-04' });
+    expect(chicagoDay.totals.tips).toBe(1);
+    expect(chicagoDay.volume).toEqual([{ bucket: '2026-03-04', count: 1 }]);
+    expect((await report(admin, { from: '2026-03-05', to: '2026-03-05' })).totals.tips).toBe(0);
+    // The same instant in a UTC program belongs to the 5th.
+    await system((q) => q("update organizations set timezone = 'UTC' where id = $1", [org.id]));
+    expect((await report(admin, { from: '2026-03-05', to: '2026-03-05' })).totals.tips).toBe(1);
+    expect((await report(admin, { from: '2026-03-04', to: '2026-03-04' })).totals.tips).toBe(0);
+  });
+});

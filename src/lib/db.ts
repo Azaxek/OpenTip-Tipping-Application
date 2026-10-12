@@ -4,9 +4,19 @@ export type Q = <T = any>(text: string, params?: unknown[]) => Promise<T[]>;
 
 const g = globalThis as { __otPool?: pg.Pool };
 
+/**
+ * The database address. DATABASE_URL, or the POSTGRES_URL that Vercel's Neon/Supabase integration fills in for you.
+ * Neon's copy button adds `channel_binding=require`, which this driver cannot do and which makes every connection fail,
+ * so it is dropped here rather than leaving a trap for whoever pastes the string.
+ */
+export function databaseUrl(env: Record<string, string | undefined> = process.env): string | undefined {
+  const url = env.DATABASE_URL || env.POSTGRES_URL;
+  return url?.trim().replace(/([?&])channel_binding=[^&]*&?/, '$1').replace(/[?&]$/, '');
+}
+
 function pool(): pg.Pool {
   if (!g.__otPool) {
-    const url = process.env.DATABASE_URL;
+    const url = databaseUrl();
     if (!url) throw new Error('DATABASE_URL is not set');
     g.__otPool = new pg.Pool({ connectionString: url, max: Number(process.env.PG_POOL_MAX || 5), idleTimeoutMillis: 10_000 });
     g.__otPool.on('error', () => {}); // idle-client errors must not crash the process

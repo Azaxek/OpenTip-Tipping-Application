@@ -32,6 +32,8 @@ export async function runMigrations(connectionString, log = console.log) {
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   for (const f of ['.env.local', '.env']) { try { process.loadEnvFile(f); } catch {} }
-  if (!process.env.DATABASE_URL) { console.error('DATABASE_URL is not set.'); process.exit(1); }
-  runMigrations(process.env.DATABASE_URL).then(() => console.log('migrate: up to date'), (e) => { console.error(e.message); process.exit(1); });
+  // Same rules as src/lib/db.ts: accept Vercel's POSTGRES_URL, and drop the channel_binding option Neon adds (this driver cannot do it).
+  const url = (process.env.DATABASE_URL || process.env.POSTGRES_URL)?.trim().replace(/([?&])channel_binding=[^&]*&?/, '$1').replace(/[?&]$/, '');
+  if (!url) { console.error('DATABASE_URL is not set. Add it in Vercel: Project → Settings → Environment Variables (see SETUP-GUIDE.md, step 3).'); process.exit(1); }
+  runMigrations(url).then(() => console.log('migrate: up to date'), (e) => { console.error(e.message); process.exit(1); });
 }

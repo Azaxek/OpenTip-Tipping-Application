@@ -6,6 +6,7 @@ import { getOrg } from '@/lib/org';
 import { rateLimit } from '@/lib/ratelimit';
 import { headerRequest, setSessionCookie } from '@/lib/session';
 import { createOrganization } from '@/lib/setup';
+import { isTimeZone } from '@/lib/time';
 import { staffLogin } from '@/lib/staff';
 
 const Form = z.object({
@@ -16,6 +17,7 @@ const Form = z.object({
   maxRewardDollars: z.coerce.number().min(0).max(1_000_000),
   retentionDays: z.coerce.number().int().min(1).max(3650),
   locationName: z.string().trim().max(200).optional(),
+  timezone: z.string().trim().optional(),
   adminName: z.string().trim().min(1).max(120),
   adminEmail: z.string().trim().email().max(320),
   adminPassword: z.string().min(10).max(200),
@@ -37,7 +39,7 @@ export async function setupAction(_prev: { error?: string } | undefined, fd: For
   try {
     await createOrganization({
       name: d.name, orgType: d.orgType, hotline: d.hotline, primaryColor: d.primaryColor, maxRewardCents: Math.round(d.maxRewardDollars * 100),
-      retentionDays: d.retentionDays, locationName: d.locationName, adminName: d.adminName, adminEmail: d.adminEmail, adminPassword: d.adminPassword,
+      retentionDays: d.retentionDays, locationName: d.locationName, timezone: isTimeZone(d.timezone) ? d.timezone : 'UTC', adminName: d.adminName, adminEmail: d.adminEmail, adminPassword: d.adminPassword,
     });
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'Setup failed.' };

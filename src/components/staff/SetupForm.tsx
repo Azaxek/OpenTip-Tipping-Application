@@ -1,10 +1,12 @@
 'use client';
-import { startTransition, useActionState, useState } from 'react';
+import { startTransition, useActionState, useEffect, useState } from 'react';
 import { setupAction } from '@/app/setup/actions';
 
 export function SetupForm() {
   const [state, action, pending] = useActionState(setupAction, undefined);
   const [type, setType] = useState('campus');
+  const [tz, setTz] = useState('');
+  useEffect(() => setTz(Intl.DateTimeFormat().resolvedOptions().timeZone || ''), []); // the browser knows where the person is; Settings can change it later
   return (
     <form
       // Submitting through startTransition (instead of the form's action prop) stops React from clearing every field when the server reports a problem.
@@ -17,6 +19,7 @@ export function SetupForm() {
         <p className="hint">The SETUP_TOKEN value you set in your hosting environment variables. It stops strangers from claiming a new deployment.</p>
       </div>
 
+      <input type="hidden" name="timezone" value={tz} />
       <fieldset className="space-y-2">
         <legend className="label">What kind of program is this?</legend>
         {[['campus', 'School or district', 'Campus categories: bullying, threats, self-harm, abuse, and more. Teams for counseling, SRO and administration.'], ['crime_stoppers', 'Crime Stoppers / community', 'Crime categories: theft, assault, drugs, fraud, and more.']].map(([v, t, d]) => (

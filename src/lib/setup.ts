@@ -11,6 +11,7 @@ export type SetupInput = {
   maxRewardCents?: number;
   retentionDays?: number;
   locationName?: string;
+  timezone?: string;
   adminName: string;
   adminEmail: string;
   adminPassword: string;
@@ -28,9 +29,9 @@ export async function createOrganization(i: SetupInput, opts: { allowMultiple?: 
     const slug = i.slug ?? `${slugify(i.name)}-${Math.random().toString(36).slice(2, 6)}`;
     const org = (
       await q(
-        `insert into organizations (slug, name, org_type, hotline, primary_color, max_reward_cents, retention_days, tipster_note, help_text)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9) returning id`,
-        [slug, i.name, i.orgType, i.hotline || null, i.primaryColor || '#1d4ed8', i.maxRewardCents ?? 0, i.retentionDays ?? 365, tax.tipsterNote, tax.helpText],
+        `insert into organizations (slug, name, org_type, hotline, primary_color, max_reward_cents, retention_days, tipster_note, help_text, timezone)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) returning id`,
+        [slug, i.name, i.orgType, i.hotline || null, i.primaryColor || '#1d4ed8', i.maxRewardCents ?? 0, i.retentionDays ?? 365, tax.tipsterNote, tax.helpText, i.timezone || 'UTC'],
       )
     )[0].id as string;
 

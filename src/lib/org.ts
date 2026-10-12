@@ -20,6 +20,12 @@ export type Org = {
   escalation_webhook_url: string | null;
   tipster_note: string;
   help_text: string;
+  tipster_note_es: string;
+  help_text_es: string;
+  timezone: string;
+  new_tip_alerts: 'off' | 'urgent' | 'all';
+  watch_keywords: string;
+  response_target_hours: number;
 };
 
 /**
