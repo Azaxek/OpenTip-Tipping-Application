@@ -12,6 +12,7 @@ const Body = z.object({
   description: z.string().max(5000).optional(),
   passcode: z.string().min(6).max(128),
   attachmentKeys: z.array(z.string().max(100)).max(30).optional(),
+  bulletinId: z.uuid().nullish(),
 });
 
 export async function POST(req: Request) {

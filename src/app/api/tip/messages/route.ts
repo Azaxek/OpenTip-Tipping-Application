@@ -1,4 +1,5 @@
 import { fail, json, publicPost } from '@/lib/http';
+import { isLang } from '@/lib/i18n';
 import { rateLimit } from '@/lib/ratelimit';
 import { InputError, getTipStatus, listTipsterMessages, postTipsterMessage, tipsterFromRequest } from '@/lib/tipster';
 
@@ -8,8 +9,10 @@ export async function GET(req: Request) {
   if (!who) return fail('Please sign in again.', 401);
   const limited = rateLimit(req, 'tip-poll', 60, 60_000, who.tipUuid);
   if (limited) return limited;
-  const since = Math.max(0, parseInt(new URL(req.url).searchParams.get('since') ?? '0', 10) || 0);
-  const status = await getTipStatus(who.orgId, who.tipUuid);
+  const q = new URL(req.url).searchParams;
+  const since = Math.max(0, parseInt(q.get('since') ?? '0', 10) || 0);
+  const lang = q.get('lang');
+  const status = await getTipStatus(who.orgId, who.tipUuid, isLang(lang) ? lang : 'en');
   if (!status) return fail('Please sign in again.', 401);
   return json({ status, messages: await listTipsterMessages(who.orgId, who.tipUuid, since) });
 }

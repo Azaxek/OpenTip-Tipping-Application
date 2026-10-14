@@ -137,7 +137,8 @@ describe('escalation', () => {
     vi.stubEnv('RESEND_FROM', 'OpenTip <alerts@example.org>');
     const fetchMock = vi.fn(async () => new Response('{}', { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
-    const { org, admin } = await makeOrg('campus', { escalation_webhook_url: 'https://hooks.example.org/x' });
+    // new-tip alerts are covered in alerts-watchlist.test.ts; switched off here so only the escalation's own calls are counted
+    const { org, admin } = await makeOrg('campus', { escalation_webhook_url: 'https://hooks.example.org/x', new_tip_alerts: 'off' });
     await makeReviewer(org, ['Counseling'], { onCall: true });
     await submit(org, 'Self-Harm/Suicide Concern', { description: 'SENSITIVE-DESCRIPTION-TEXT' });
     const [t] = await listQueue(admin);

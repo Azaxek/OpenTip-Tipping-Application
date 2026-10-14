@@ -9,6 +9,9 @@ export const isUuid = (s: unknown): s is string => typeof s === 'string' && /^[0
 
 export class StaffInputError extends Error {}
 
+/** A tip is priority when the tipster said urgent, its category is high-risk, or it matched the keyword watch list. */
+export const PRIORITY = '(t.urgent or c.high_risk or cardinality(t.watch_hits) > 0)';
+
 /** Every staff action on a tip loads it through here first, so team routing is enforced in one place. */
 async function guard(q: Q, s: Staff, tipId: string) {
   if (!isUuid(tipId)) return null;
@@ -31,6 +34,10 @@ export type QueueFilter = {
   teamId?: string;
   assignee?: string; // 'me' | 'unassigned' | reviewer uuid
   urgent?: boolean;
+  /** Only tips where the tipster wrote last and staff owe a reply. */
+  needsReply?: boolean;
+  /** Free text: matches a TIP ID, the description, chat messages and internal notes. */
+  search?: string;
   sort?: 'priority' | 'newest' | 'oldest';
 };
 
@@ -47,13 +54,20 @@ export async function listQueue(s: Staff, f: QueueFilter = {}) {
   if (f.assignee === 'me') where.push('t.assigned_reviewer_id = $1');
   else if (f.assignee === 'unassigned') where.push('t.assigned_reviewer_id is null');
   else if (isUuid(f.assignee)) add('t.assigned_reviewer_id = ?', f.assignee);
-  if (f.urgent) where.push('(t.urgent or c.high_risk)');
+  if (f.urgent) where.push(PRIORITY);
+  if (f.needsReply) where.push("(t.needs_reply and t.status <> 'closed')");
+  const term = (f.search ?? '').trim().slice(0, 100);
+  if (term) {
+    params.push(`%${term.replace(/[\\%_]/g, '\\$&')}%`);
+    const p = `$${params.length}`;
+    where.push(`(t.tip_id ilike ${p} or t.description ilike ${p} or exists (select 1 from messages m where m.tip_id = t.id and m.body ilike ${p}) or exists (select 1 from internal_notes n where n.tip_id = t.id and n.body ilike ${p}))`);
+  }
   const order =
     f.sort === 'newest' ? 't.created_at desc' : f.sort === 'oldest' ? 't.created_at asc'
-    : "(t.status <> 'closed') desc, (t.urgent or c.high_risk) desc, t.needs_reply desc, t.created_at desc";
+    : `(t.status <> 'closed') desc, ${PRIORITY} desc, t.needs_reply desc, t.created_at desc`;
   return withOrg(s.orgId, (q) =>
     q(
-      `select t.id, t.tip_id, t.status, t.urgent, c.high_risk, (t.urgent or c.high_risk) as priority, t.needs_reply,
+      `select t.id, t.tip_id, t.status, t.urgent, c.high_risk, ${PRIORITY} as priority, t.needs_reply, t.waiting_since, t.assigned_reviewer_id, t.source, cardinality(t.watch_hits) > 0 as watch,
               t.created_at, c.name as category, l.name as location, r.name as assignee,
               (select string_agg(tm.name, ', ' order by tm.name) from tip_teams tt join teams tm on tm.id = tt.team_id where tt.tip_id = t.id) as teams
          from tips t join categories c on c.id = t.category_id
@@ -74,9 +88,10 @@ export async function getTipDetail(s: Staff, tipId: string) {
     const base = await guard(q, s, tipId);
     if (!base) return null;
     const [tip] = await q(
-      `select t.*, c.name as category, c.high_risk, l.name as location, r.name as assignee_name
+      `select t.*, c.name as category, c.high_risk, l.name as location, r.name as assignee_name, b.title as bulletin_title, b.case_number as bulletin_case
          from tips t join categories c on c.id = t.category_id
          left join locations l on l.id = t.location_id left join reviewers r on r.id = t.assigned_reviewer_id
+         left join bulletins b on b.id = t.bulletin_id
         where t.id = $1`,
       [tipId],
     );
@@ -110,7 +125,7 @@ export async function sendReviewerMessage(s: Staff, tipId: string, body: string)
     await need(q, s, tipId);
     await q("insert into messages (org_id, tip_id, sender, reviewer_id, body) values ($1, $2, 'reviewer', $3, $4)", [s.orgId, tipId, s.id, text]);
     await q(
-      `update tips set needs_reply = false, updated_at = now(),
+      `update tips set needs_reply = false, waiting_since = null, updated_at = now(),
               first_response_at = coalesce(first_response_at, now()),
               status = case when status = 'new' then 'under_review' else status end
         where id = $1`,

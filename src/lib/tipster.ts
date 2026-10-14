@@ -1,8 +1,12 @@
+import { afterResponse } from './after';
 import { hashSecret, signToken, verifySecret, verifyToken } from './crypto';
 import { withOrg } from './db';
 import { canonicalTipId, newClaimCode, newTipId } from './ids';
+import { localizeCategory, localizeOrgText, type Lang } from './i18n';
+import { alertStaff } from './notify';
 import type { Org } from './org';
 import { ingest } from './uploads';
+import { parseKeywords, watchHits } from './watch';
 
 export const PASSCODE_MIN = 6;
 export const TOKEN_TTL_SECONDS = 2 * 3600;
@@ -18,6 +22,10 @@ export type NewTip = {
   description?: string;
   passcode: string;
   attachmentKeys?: string[];
+  /** 'phone' = entered by staff from a call or walk-in; the caller still gets a TIP ID and passcode. */
+  source?: 'web' | 'phone';
+  /** The public case bulletin this tip is about (ignored if the bulletin has since been closed). */
+  bulletinId?: string | null;
 };
 
 const tipToken = (orgId: string, tipUuid: string) => signToken({ k: 'tipster', t: tipUuid, o: orgId }, TOKEN_TTL_SECONDS);
@@ -47,9 +55,9 @@ export async function createTip(org: Org, input: NewTip) {
     for (let attempt = 0; attempt < 5; attempt++) {
       const tipId = newTipId();
       const row = await q<{ id: string }>(
-        `insert into tips (org_id, tip_id, passcode_hash, location_id, category_id, urgent, description)
-         values ($1, $2, $3, $4, $5, $6, $7) on conflict (tip_id) do nothing returning id`,
-        [org.id, tipId, passcodeHash, input.locationId || null, input.categoryId, !!input.urgent, description],
+        `insert into tips (org_id, tip_id, passcode_hash, location_id, category_id, urgent, description, source, watch_hits, waiting_since, bulletin_id)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), (select id from bulletins where id = $10::uuid and active)) on conflict (tip_id) do nothing returning id`,
+        [org.id, tipId, passcodeHash, input.locationId || null, input.categoryId, !!input.urgent, description, input.source ?? 'web', watchHits(description, parseKeywords(org.watch_keywords ?? '')), input.bulletinId || null],
       );
       if (!row.length) continue;
       // Route to the category's teams, skipping any team scoped to other locations than this tip's.
@@ -67,6 +75,7 @@ export async function createTip(org: Org, input: NewTip) {
   });
 
   const attachments = keys.length ? await ingest(org, created.tipUuid, keys) : { stored: 0, failed: 0 };
+  afterResponse(() => alertStaff(org.id, created.tipUuid, 'new'));
   return { tipId: created.tipId, token: tipToken(org.id, created.tipUuid), attachments };
 }
 
@@ -96,17 +105,26 @@ export async function tipsterLogin(org: Org, tipIdInput: unknown, passcode: unkn
   return null;
 }
 
-export async function getTipStatus(orgId: string, tipUuid: string) {
+export async function getTipStatus(orgId: string, tipUuid: string, lang: Lang = 'en') {
   const rows = await withOrg(orgId, (q) =>
     q(
-      `select t.status, t.created_at, c.name as category, t.reward_eligible, t.reward_amount_cents,
+      `select t.status, t.created_at, c.name as category, c.description as category_description, t.reward_eligible, t.reward_amount_cents,
               (t.claim_code_revealed_at is not null) as claim_code_shown, (t.claimed_at is not null) as claimed,
-              o.tipster_note as note, o.help_text as resources
+              o.tipster_note as note, o.help_text as resources, o.tipster_note_es, o.help_text_es, o.org_type
          from tips t join categories c on c.id = t.category_id join organizations o on o.id = t.org_id where t.id = $1`,
       [tipUuid],
     ),
   );
-  return rows[0] ?? null;
+  const r = rows[0];
+  if (!r) return null;
+  const { tipster_note_es, help_text_es, org_type, category_description, ...out } = r;
+  const cat = localizeCategory({ name: out.category as string, description: category_description as string }, lang, org_type);
+  return {
+    ...out,
+    category: cat.name,
+    note: localizeOrgText('note', out.note, tipster_note_es, lang, org_type),
+    resources: localizeOrgText('help', out.resources, help_text_es, lang, org_type),
+  };
 }
 
 export const listTipsterMessages = (orgId: string, tipUuid: string, since: number) =>
@@ -120,13 +138,22 @@ export const listTipsterMessages = (orgId: string, tipUuid: string, since: numbe
 export async function postTipsterMessage(orgId: string, tipUuid: string, body: unknown) {
   const text = typeof body === 'string' ? body.trim() : '';
   if (!text || text.length > 5000) throw new InputError('Message must be 1-5,000 characters.');
-  await withOrg(orgId, async (q) => {
-    if (!(await q('select 1 from tips where id = $1', [tipUuid])).length) throw new InputError('This tip no longer exists.');
+  const wasWaiting = await withOrg(orgId, async (q) => {
+    const tip = (await q<{ needs_reply: boolean }>('select needs_reply from tips where id = $1', [tipUuid]))[0];
+    if (!tip) throw new InputError('This tip no longer exists.');
     const recent = await q<{ n: number }>("select count(*)::int as n from messages where tip_id = $1 and sender = 'tipster' and created_at > now() - interval '1 hour'", [tipUuid]);
     if (recent[0].n >= 60) throw new InputError('You are sending messages too quickly. Please wait a while.');
     await q("insert into messages (org_id, tip_id, sender, body) values ($1, $2, 'tipster', $3)", [orgId, tipUuid, text]);
-    await q('update tips set needs_reply = true, updated_at = now() where id = $1', [tipUuid]);
+    // A watch-list word in a follow-up flags the tip too; waiting_since only restarts when staff had already replied.
+    const kw = parseKeywords((await q<{ watch_keywords: string }>('select watch_keywords from organizations'))[0].watch_keywords);
+    await q(
+      `update tips set waiting_since = case when needs_reply then waiting_since else now() end, needs_reply = true, updated_at = now(),
+              watch_hits = (select coalesce(array_agg(distinct w), '{}') from unnest(watch_hits || $2::text[]) as w) where id = $1`,
+      [tipUuid, watchHits(text, kw)],
+    );
+    return tip.needs_reply;
   });
+  if (!wasWaiting) afterResponse(() => alertStaff(orgId, tipUuid, 'reply')); // only when staff were caught up, so a chatty tipster cannot flood anyone
 }
 
 /**

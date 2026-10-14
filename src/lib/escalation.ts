@@ -18,7 +18,7 @@ export async function escalate(s: Staff, tipId: string): Promise<EscalationResul
   const ctx = await withOrg(s.orgId, async (q) => {
     const t = (
       await q<any>(
-        `select t.tip_id, t.urgent, t.status, c.name as category, c.high_risk from tips t join categories c on c.id = t.category_id
+        `select t.tip_id, t.urgent, t.status, c.name as category, c.high_risk, cardinality(t.watch_hits) > 0 as watch from tips t join categories c on c.id = t.category_id
           where t.id = $1 and ${visible(s, 2)}`,
         [tipId, s.id],
       )
@@ -35,7 +35,7 @@ export async function escalate(s: Staff, tipId: string): Promise<EscalationResul
 
   const { t, org, recipients } = ctx;
   const link = `${appUrl()}/staff/tips/${tipId}`;
-  const text = `ESCALATION - ${org.name}: tip ${t.tip_id} (${t.category}${t.urgent || t.high_risk ? ', urgent/high-risk' : ''}) was escalated by ${s.name}. Open the console: ${link}`;
+  const text = `ESCALATION - ${org.name}: tip ${t.tip_id} (${t.category}${t.urgent || t.high_risk || t.watch ? ', urgent/high-risk' : ''}) was escalated by ${s.name}. Open the console: ${link}`;
 
   let [email, webhook] = await Promise.all([sendEmail(recipients, `[OpenTip] Escalation: tip ${t.tip_id}`, text), sendWebhook(org.escalation_webhook_url, text)]);
   // A DEMO_MODE deployment has no real channels: simulate delivery so the workflow can be shown, labelled as simulated everywhere.
@@ -66,7 +66,7 @@ export async function sendTestAlert(s: Staff): Promise<EscalationResult> {
   return { delivered, email, webhook, recipients: recipients.length };
 }
 
-async function sendEmail(to: string[], subject: string, text: string): Promise<ChannelResult> {
+export async function sendEmail(to: string[], subject: string, text: string): Promise<ChannelResult> {
   if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM) return 'not_configured';
   if (!to.length) return 'no_recipients';
   try {
@@ -82,7 +82,7 @@ async function sendEmail(to: string[], subject: string, text: string): Promise<C
   }
 }
 
-async function sendWebhook(url: string | null, text: string): Promise<ChannelResult> {
+export async function sendWebhook(url: string | null, text: string): Promise<ChannelResult> {
   if (!url) return 'not_configured';
   try {
     // `text` is Slack's field, `content` is Discord's; each ignores the other.
