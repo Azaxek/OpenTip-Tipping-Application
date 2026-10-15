@@ -1,6 +1,7 @@
 import { audit } from './audit';
-import { hashSecret, randomToken, sha256, verifySecret } from './crypto';
+import { hashSecret, randomToken, sha256, unseal, verifySecret } from './crypto';
 import { system, withOrg } from './db';
+import { verifyTotp } from './totp';
 
 export type Staff = {
   id: string;
@@ -16,12 +17,19 @@ export const SESSION_DAYS = 7;
 const MAX_FAILS = 5;
 const LOCK_MINUTES = 15;
 
-/** Email + password login. Returns a session token (store as an httpOnly cookie) or null. Uniform failure either way. */
-export async function staffLogin(orgId: string, email: string, password: string): Promise<string | null> {
+export type SignIn = { token: string } | { needCode: true } | null;
+
+/**
+ * Email + password (+ authenticator code when the person turned on two-step sign-in).
+ * Failure is uniform (null) for a wrong password, a wrong code, an unknown email and a locked account; a wrong code counts
+ * toward the same lockout as a wrong password, so a stolen password cannot be used to guess six-digit codes.
+ * { needCode } is returned only after the password was right.
+ */
+export async function staffSignIn(orgId: string, email: string, password: string, code?: string): Promise<SignIn> {
   const row = (
     await withOrg(orgId, (q) =>
-      q<{ id: string; password_hash: string; active: boolean; locked: boolean; name: string; email: string }>(
-        'select id, password_hash, active, name, email, coalesce(locked_until > now(), false) as locked from reviewers where lower(email) = lower($1)',
+      q<{ id: string; password_hash: string; active: boolean; locked: boolean; name: string; email: string; totp_enabled: boolean; totp_secret: string | null; totp_last_step: string }>(
+        'select id, password_hash, active, name, email, totp_enabled, totp_secret, totp_last_step::text, coalesce(locked_until > now(), false) as locked from reviewers where lower(email) = lower($1)',
         [String(email).slice(0, 320)],
       ),
     )
@@ -29,7 +37,7 @@ export async function staffLogin(orgId: string, email: string, password: string)
   const usable = row && row.active && !row.locked;
   const ok = await verifySecret(usable ? row.password_hash : null, String(password).slice(0, 256));
   if (!row) return null;
-  if (!ok) {
+  const fail = async () => {
     if (usable) {
       await withOrg(orgId, (q) =>
         q(
@@ -41,14 +49,28 @@ export async function staffLogin(orgId: string, email: string, password: string)
       );
     }
     return null;
+  };
+  if (!ok) return fail();
+  let step = 0;
+  if (row.totp_enabled) {
+    if (!code?.trim()) return { needCode: true };
+    const secret = row.totp_secret ? unseal(row.totp_secret) : null;
+    step = (secret && verifyTotp(secret, String(code).slice(0, 12), Number(row.totp_last_step))) || 0;
+    if (!step) return fail();
   }
   const token = randomToken();
   await withOrg(orgId, async (q) => {
-    await q('update reviewers set failed_attempts = 0, locked_until = null where id = $1', [row.id]);
+    await q('update reviewers set failed_attempts = 0, locked_until = null, totp_last_step = greatest(totp_last_step, $2) where id = $1', [row.id, step]);
     await q("insert into sessions (token_hash, org_id, reviewer_id, expires_at) values ($1, $2, $3, now() + make_interval(days => $4))", [sha256(token), orgId, row.id, SESSION_DAYS]);
     await audit(q, { id: row.id, orgId, name: row.name, email: row.email }, 'auth.login');
   });
-  return token;
+  return { token };
+}
+
+/** Password-only convenience (first-run setup signs in the brand-new admin, who has no two-step yet). Null if a code is still needed. */
+export async function staffLogin(orgId: string, email: string, password: string): Promise<string | null> {
+  const r = await staffSignIn(orgId, email, password);
+  return r && 'token' in r ? r.token : null;
 }
 
 /** Cross-org lookup by an unguessable token hash, so it runs as the owner role; everything after is org-scoped. */

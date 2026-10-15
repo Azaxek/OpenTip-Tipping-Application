@@ -12,7 +12,8 @@
     "migrate": "node scripts/migrate.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "keys": "node scripts/gen-keys.mjs"
+    "keys": "node scripts/gen-keys.mjs",
+    "reset-2fa": "node scripts/reset-2fa.mjs"
   },
   "engines": {
     "node": ">=20"
