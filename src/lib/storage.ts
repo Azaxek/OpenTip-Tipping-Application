@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { system } from './db';
 import path from 'node:path';
@@ -143,6 +144,38 @@ function dbStorage(): Storage {
       return (await system((q) => q<{ key: string; created_at: Date }>('select key, created_at from storage_objects where key like $1', [`${prefix.replace(/[%_\\]/g, '\\$&')}%`]))).map((r) => ({ key: r.key, modified: r.created_at }));
     },
   };
+}
+
+/** True when evidence uploads can work. The tip form hides file upload entirely until this is true, rather than failing at the last step. */
+export function storageConfigured(): boolean {
+  const d = process.env.STORAGE_DRIVER;
+  if (d === 'fs') return process.env.NODE_ENV !== 'production';
+  if (d === 'db') return process.env.DEMO_MODE === '1';
+  return !!(process.env.S3_BUCKET && process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY);
+}
+
+const why = (e: any): string => {
+  const name = String(e?.name ?? e?.Code ?? e?.code ?? '');
+  if (/NoSuchBucket/i.test(name)) return 'The bucket name (S3_BUCKET) was not found in that account. Check the spelling.';
+  if (/InvalidAccessKeyId|SignatureDoesNotMatch|AccessDenied|Forbidden|Unauthorized/i.test(name)) return 'The storage provider refused the keys. Check S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, and that the token has "Object Read & Write" permission on this bucket.';
+  if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|UnknownEndpoint|TimeoutError/i.test(name + String(e?.message))) return 'Could not reach the storage address (S3_ENDPOINT). It should look like https://<account-id>.r2.cloudflarestorage.com, with no bucket name on the end.';
+  return `The storage test failed (${name || 'error'}). Check all four S3_ settings.`;
+};
+
+/** Writes, reads back and deletes a tiny file, so a mistake in the storage keys shows up in Settings instead of on a tipster's last step. Browser upload permission (CORS) cannot be tested from here. */
+export async function storageSelfTest(): Promise<{ ok: boolean; message: string }> {
+  if (!storageConfigured()) return { ok: false, message: 'Evidence storage is not set up. Tips still work, but people cannot attach files. Add the S3_ settings described in SETUP-GUIDE.md.' };
+  const key = `quarantine/selftest-${randomUUID()}.txt`;
+  const s = getStorage();
+  try {
+    await s.put(key, Buffer.from('opentip storage test'), 'text/plain');
+    const back = (await s.get(key)).toString();
+    await s.delete(key);
+    return back === 'opentip storage test' ? { ok: true, message: 'Evidence storage works: a test file was written, read back and deleted. (Browser uploads also need the CORS rule from the setup guide; test one real photo from a phone.)' } : { ok: false, message: 'The storage returned different data than was written.' };
+  } catch (e) {
+    await s.delete(key).catch(() => {});
+    return { ok: false, message: why(e) };
+  }
 }
 
 let cached: { driver: string; s: Storage } | undefined;

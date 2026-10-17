@@ -1,4 +1,5 @@
 import { pushConfigured } from './push';
+import { storageConfigured } from './storage';
 
 export type Check = { label: string; ok: boolean; critical: boolean; fix: string };
 
@@ -6,11 +7,7 @@ export type Check = { label: string; ok: boolean; critical: boolean; fix: string
 export function readiness(): Check[] {
   const has = (k: string) => !!process.env[k];
   const demo = process.env.DEMO_MODE === '1';
-  const driver = process.env.STORAGE_DRIVER;
-  const storage =
-    driver === 'fs' ? process.env.NODE_ENV !== 'production'
-    : driver === 'db' ? demo
-    : has('S3_BUCKET') && has('S3_ACCESS_KEY_ID') && has('S3_SECRET_ACCESS_KEY');
+  const storage = storageConfigured();
   return [
     { label: 'Secret key (APP_SECRET)', ok: (process.env.APP_SECRET?.length ?? 0) >= 32, critical: true, fix: 'Run `npm run keys` and set APP_SECRET.' },
     ...(demo ? [{ label: 'DEMO MODE is ON (sample data, relaxed bot protection)', ok: false, critical: false, fix: 'Fine for a demonstration. Remove DEMO_MODE before collecting real tips.' }] : []),
