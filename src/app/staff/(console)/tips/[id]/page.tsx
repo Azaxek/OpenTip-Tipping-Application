@@ -1,10 +1,12 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { AmountChips } from '@/components/staff/AmountChips';
 import { ChatPanel } from '@/components/staff/ChatPanel';
-import { Card, Flash, StatusBadge, UrgentBadge, when } from '@/components/staff/ui';
+import { Card, Flash, StatusBadge, UrgentBadge, Waiting, when } from '@/components/staff/ui';
 import { withOrg } from '@/lib/db';
 import { getTipDetail } from '@/lib/queue';
 import { requireStaff } from '@/lib/session';
+import { highlight } from '@/lib/watch';
 import { assignAction, closeAction, escalateAction, noteAction, reissueAction, rewardAction, routeAction, statusAction, urgentAction } from '../../../actions';
 
 export const metadata = { title: 'Tip' };
@@ -18,15 +20,16 @@ export default async function TipPage({ params, searchParams }: { params: Promis
   const d = await getTipDetail(s, id);
   if (!d) notFound();
   const { tip, media, notes, teams, tipTeamIds, reviewers, canned } = d;
-  const maxReward = (await withOrg(s.orgId, (q) => q<{ max_reward_cents: number }>('select max_reward_cents from organizations')))[0].max_reward_cents;
-  const priority = tip.urgent || tip.high_risk;
+  const { max_reward_cents: maxReward, response_target_hours: targetHours } = (await withOrg(s.orgId, (q) => q<{ max_reward_cents: number; response_target_hours: number }>('select max_reward_cents, response_target_hours from organizations')))[0];
+  const hits: string[] = tip.watch_hits ?? [];
+  const priority = tip.urgent || tip.high_risk || hits.length > 0;
   const closed = tip.status === 'closed';
   const hidden = <input type="hidden" name="tipId" value={id} />;
 
   return (
     <div className="space-y-4">
       <Link href="/staff" className="link text-sm">← Queue</Link>
-      <Flash e={sp.e} />
+      <Flash e={sp.e} ok={sp.ok} />
       {sp.esc === 'ok' && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm font-semibold text-green-900">Escalation sent to your configured channels and logged.</p>}
       {sp.esc === 'sim' && (
         <p role="status" className="rounded-lg bg-blue-50 p-3 text-sm font-semibold text-blue-900">
@@ -43,6 +46,9 @@ export default async function TipPage({ params, searchParams }: { params: Promis
         <h1 className="font-mono text-2xl font-bold">{tip.tip_id}</h1>
         <StatusBadge status={tip.status} />
         {priority && !closed && <UrgentBadge />}
+        {tip.needs_reply && !closed && tip.waiting_since && <Waiting since={tip.waiting_since} targetHours={targetHours} />}
+        {tip.source === 'phone' && <span className="badge bg-slate-100 text-slate-800" title="A staff member typed this in from a call or visit">Phone / walk-in</span>}
+        {tip.bulletin_title && <span className="badge bg-sky-100 text-sky-900" title="The tipster chose to tip about this public case">Case: {tip.bulletin_case ? `${tip.bulletin_case} · ` : ''}{tip.bulletin_title}</span>}
         <span className="text-sm text-slate-600">{tip.category}{tip.location ? ` · ${tip.location}` : ''} · received {when(tip.created_at)}</span>
         {priority && !closed && (
           <form action={escalateAction} className="ml-auto">{hidden}<button className="btn btn-danger">Escalate now</button></form>
@@ -52,7 +58,8 @@ export default async function TipPage({ params, searchParams }: { params: Promis
       <div className="grid gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
           <Card title="Description">
-            {tip.description ? <p className="whitespace-pre-wrap">{tip.description}</p> : <p className="text-slate-600">No written description (evidence only).</p>}
+            {hits.length > 0 && <p className="mb-3 rounded-lg bg-orange-50 p-2 text-sm font-semibold text-orange-950">Matched your watch list: {hits.join(', ')}. This tip is pinned as a priority.</p>}
+            {tip.description ? <p className="whitespace-pre-wrap">{highlight(tip.description, hits).map(([t, hit], i) => (hit ? <mark key={i} className="rounded bg-orange-200 px-0.5">{t}</mark> : t))}</p> : <p className="text-slate-600">No written description (evidence only).</p>}
           </Card>
 
           {media.length > 0 && (
@@ -123,6 +130,7 @@ export default async function TipPage({ params, searchParams }: { params: Promis
                   <input type="hidden" name="eligible" value="1" />
                   <label className="label" htmlFor="amount">{tip.reward_eligible ? 'Reward amount (USD)' : 'Mark reward-eligible: amount (USD)'}</label>
                   <input id="amount" name="amount" type="number" step="0.01" min="0" max={maxReward / 100} defaultValue={tip.reward_amount_cents != null ? (tip.reward_amount_cents / 100).toFixed(2) : ''} className="input !py-1.5 text-sm" required />
+                  <AmountChips targetId="amount" values={[0.25, 0.5, 1].map((fr) => Math.round((maxReward * fr) / 100)).filter((v, i, a) => v > 0 && a.indexOf(v) === i)} />
                   <p className="hint">Up to ${(maxReward / 100).toFixed(2)}. The tipster is notified and gets a one-time claim code.</p>
                   <button className="btn !min-h-9 text-xs">{tip.reward_eligible ? 'Update amount' : 'Mark eligible'}</button>
                 </form>
