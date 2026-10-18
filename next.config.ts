@@ -24,6 +24,8 @@ const csp = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Staff upload one small photo or CSV at a time through a server action; Vercel itself caps request bodies at about 4.5 MB.
+  experimental: { serverActions: { bodySizeLimit: '4.5mb' } },
   turbopack: { root: process.cwd() },
   serverExternalPackages: ['sharp', '@node-rs/argon2', 'ffmpeg-static', 'pg', 'web-push', 'file-type'],
   // ffmpeg is a native binary the tracer can't see; without this Vercel deployments would ship without it.

@@ -15,6 +15,7 @@ export default async function ConsoleLayout({ children }: { children: ReactNode 
   const nav: [string, string, boolean][] = [
     ['/staff', 'Queue', true],
     ['/staff/rewards', 'Rewards', true],
+    ['/staff/bulletins', 'Bulletins', admin],
     ['/staff/analytics', 'Analytics', admin],
     ['/staff/materials', 'Materials', admin],
     ['/staff/settings', 'Settings', admin],
