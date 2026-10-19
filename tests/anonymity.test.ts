@@ -63,7 +63,7 @@ describe('no request metadata is captured', () => {
   });
 
   it('no third-party scripts, analytics or trackers on tipster pages', () => {
-    const pages = files.filter((f) => /^(components\/(?!staff)|app\/(page|submit|check|privacy|layout))/.test(rel(f)));
+    const pages = files.filter((f) => /^(components\/(?!staff)|app\/(page|submit|check|privacy|wanted|layout|\[lang\]))/.test(rel(f)));
     for (const f of pages) {
       const src = read(f);
       expect(src, rel(f)).not.toMatch(/gtag|google-analytics|googletagmanager|segment\.|mixpanel|hotjar|plausible|posthog|fbq\(|clarity\.ms|@vercel\/analytics|next\/script/i);
@@ -107,6 +107,8 @@ describe('911 safety banner', () => {
 
   it('is present on the landing page, the tip form and the tip-check page', () => {
     const src = (p: string) => fs.readFileSync(path.resolve(process.cwd(), 'src', p), 'utf8');
-    for (const p of ['app/page.tsx', 'components/SubmitWizard.tsx', 'app/check/page.tsx']) expect(src(p), p).toContain('<EmergencyBanner');
+    for (const p of ['components/pages/HomePage.tsx', 'components/SubmitWizard.tsx', 'components/pages/CheckPage.tsx', 'components/pages/WantedPage.tsx']) expect(src(p), p).toContain('<EmergencyBanner');
+    // ...and the pages at the public addresses (English and Spanish) are the ones that render those components
+    for (const [p, c] of [['app/page.tsx', 'HomePage'], ['app/check/page.tsx', 'CheckPage'], ['app/submit/page.tsx', 'SubmitPage'], ['app/[lang]/page.tsx', 'HomePage'], ['app/[lang]/check/page.tsx', 'CheckPage'], ['app/[lang]/submit/page.tsx', 'SubmitPage']]) expect(src(p), p).toContain(`<${c}`);
   });
 });

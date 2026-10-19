@@ -1,13 +1,18 @@
+import { en } from '@/lib/i18n/en';
+import { es } from '@/lib/i18n/es';
+
 /**
  * Safety floor, not a branding element: always shown above the tip form, cannot be dismissed, and takes no
- * props that could reword or hide it. `strong` only makes it louder (used when the tipster flags "urgent").
+ * props that could reword or hide it. `strong` only makes it louder (used when the tipster flags "urgent");
+ * `lang` only chooses which built-in translation is shown.
  */
-export const EMERGENCY_TEXT = 'If this is an emergency or someone is in immediate danger, call 911 now. This form is not monitored in real time.';
+export const EMERGENCY_TEXT = en.emergency;
 
-export function EmergencyBanner({ strong = false }: { strong?: boolean }) {
+export function EmergencyBanner({ strong = false, lang = 'en' }: { strong?: boolean; lang?: 'en' | 'es' }) {
+  const m = lang === 'es' ? es : en;
   return (
     <aside
-      aria-label="Emergency notice"
+      aria-label={m.emergencyLabel}
       data-testid="emergency-banner"
       className={
         strong
@@ -15,7 +20,7 @@ export function EmergencyBanner({ strong = false }: { strong?: boolean }) {
           : 'rounded-lg border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-900'
       }
     >
-      {EMERGENCY_TEXT}
+      {m.emergency}
     </aside>
   );
 }

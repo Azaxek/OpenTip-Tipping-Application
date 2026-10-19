@@ -13,7 +13,7 @@ function leave() {
  * For anyone who is not alone (abuse, coercion, a monitored device): one tap, or Esc twice, wipes this tab's saved
  * draft and session and jumps to a harmless site with no history entry back. Nothing is loaded until it is used.
  */
-export function QuickExit() {
+export function QuickExit({ label = 'Quick exit', title = 'Clears this tab and opens a weather site. You can also press Esc twice.' }: { label?: string; title?: string }) {
   useEffect(() => {
     let last = 0;
     const onKey = (e: KeyboardEvent) => {
@@ -25,8 +25,8 @@ export function QuickExit() {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
   return (
-    <button type="button" onClick={leave} className="btn !min-h-11 !border-slate-400 !bg-slate-100 text-xs" title="Clears this tab and opens a weather site. You can also press Esc twice.">
-      Quick exit
+    <button type="button" onClick={leave} className="btn !min-h-11 !border-slate-400 !bg-slate-100 text-xs" title={title}>
+      {label}
     </button>
   );
 }
