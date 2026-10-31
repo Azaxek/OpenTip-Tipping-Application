@@ -1,0 +1,45 @@
+{
+  // Lint only. Formatting is deliberately not enforced (no churn in diffs); `npm run check` = types + lint + tests.
+  "$schema": "https://biomejs.dev/schemas/2.6.3/schema.json",
+  "files": {
+    "includes": ["src/**/*.ts", "src/**/*.tsx", "tests/**/*.ts", "scripts/**/*.mjs", "*.ts", "*.mts", "*.mjs"],
+    "ignoreUnknown": true
+  },
+  "formatter": { "enabled": false },
+  "assist": { "enabled": false },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "preset": "recommended",
+      "suspicious": {
+        // No `any` in production code: untrusted input is `unknown`, database rows have a named type next to their query.
+        "noExplicitAny": "error"
+      },
+      "correctness": {
+        "useExhaustiveDependencies": "error",
+        "noUnusedVariables": "error",
+        "noUnusedImports": "error"
+      },
+      "a11y": {
+        // Buttons inside <form action={serverAction}> submit by default, on purpose. Marking all of them type="submit" adds noise, and
+        // the rule's automatic fix (type="button") would silently break them.
+        "useButtonType": "off",
+        // role="group" / role="search" are used on purpose: the wizard step must be a focusable container so keyboard and screen-reader users hear
+        // the new step, and <fieldset>/<search> either cannot take that focus reliably or are not announced consistently yet.
+        "useSemanticElements": "off"
+      },
+      "performance": {
+        // Evidence photos are served from a private, authenticated route. next/image would proxy and cache them through the public optimizer.
+        "noImgElement": "off"
+      },
+      "style": { "noNonNullAssertion": "off" }
+    }
+  },
+  "overrides": [
+    {
+      // Tests assert on ad-hoc SQL rows; typing every one would hide the assertion behind boilerplate.
+      "includes": ["tests/**"],
+      "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
+    }
+  ]
+}

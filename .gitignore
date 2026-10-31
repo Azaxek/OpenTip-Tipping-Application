@@ -11,3 +11,6 @@ coverage/
 !.env.demo.example
 
 .vercel
+
+# local tool configuration (editor / preview servers), not part of the project
+.claude/
