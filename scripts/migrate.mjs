@@ -6,10 +6,23 @@ import { fileURLToPath } from 'node:url';
 
 const dir = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'db', 'migrations');
 
+/**
+ * Tips arrive in every script and with emoji, so the database has to store UTF-8. On any other encoding (a default Windows install uses
+ * WIN1252) Postgres rejects such a tip and the tipster just sees an error, so refuse to continue instead of losing tips later.
+ */
+export async function assertUtf8(client) {
+  const { rows } = await client.query('show server_encoding');
+  const encoding = rows[0]?.server_encoding;
+  if (encoding !== 'UTF8') {
+    throw new Error(`This database stores text as ${encoding}, not UTF8, so a tip written in Arabic, Chinese, Hindi or with an emoji would be rejected. Create it with: CREATE DATABASE opentip ENCODING 'UTF8' TEMPLATE template0;  (Neon, Supabase and the official Postgres Docker image already do.)`);
+  }
+}
+
 export async function runMigrations(connectionString, log = console.log) {
   const client = new pg.Client({ connectionString });
   await client.connect();
   try {
+    await assertUtf8(client);
     await client.query('create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())');
     const done = new Set((await client.query('select name from _migrations')).rows.map((r) => r.name));
     for (const file of fs.readdirSync(dir).filter((f) => f.endsWith('.sql')).sort()) {

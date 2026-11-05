@@ -1,6 +1,7 @@
 import { audit } from './audit';
 import { withOrg } from './db';
 import { orgInTx } from './org';
+import { assertPublicHttpsUrl } from './outbound';
 import { StaffInputError, isUuid } from './queue';
 import { visible, type Staff } from './staff';
 import { appUrl, demoMode } from './url';
@@ -17,7 +18,7 @@ export async function escalate(s: Staff, tipId: string): Promise<EscalationResul
   if (!isUuid(tipId)) throw new StaffInputError('Tip not found');
   const ctx = await withOrg(s.orgId, async (q) => {
     const t = (
-      await q<any>(
+      await q<{ tip_id: string; urgent: boolean; status: string; category: string; high_risk: boolean; watch: boolean }>(
         `select t.tip_id, t.urgent, t.status, c.name as category, c.high_risk, cardinality(t.watch_hits) > 0 as watch from tips t join categories c on c.id = t.category_id
           where t.id = $1 and ${visible(s, 2)}`,
         [tipId, s.id],
@@ -85,8 +86,10 @@ export async function sendEmail(to: string[], subject: string, text: string): Pr
 export async function sendWebhook(url: string | null, text: string): Promise<ChannelResult> {
   if (!url) return 'not_configured';
   try {
+    await assertPublicHttpsUrl(url); // re-checked on every send: also covers an address saved before this check existed, or whose DNS changed
     // `text` is Slack's field, `content` is Discord's; each ignores the other.
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, content: text }), signal: AbortSignal.timeout(10_000) });
+    // redirect: 'error' because only the address above was checked; a redirect could otherwise hand the request to an internal one.
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, content: text }), signal: AbortSignal.timeout(10_000), redirect: 'error' });
     return r.ok ? 'sent' : 'failed';
   } catch {
     return 'failed';
