@@ -6,15 +6,20 @@ const PUSH_HOSTS = ['googleapis.com', 'mozilla.com', 'push.apple.com', 'notify.w
 
 export type Subscription = { endpoint: string; keys: { p256dh: string; auth: string } };
 
-export function validSubscription(s: any): s is Subscription {
+/** Accepts only a well-formed push subscription whose endpoint belongs to a known push service (an open endpoint would be an SSRF vector). */
+export function validSubscription(input: unknown): input is Subscription {
+  if (typeof input !== 'object' || input === null) return false;
+  const { endpoint, keys } = input as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } | null };
+  if (typeof endpoint !== 'string' || endpoint.length > 1000) return false;
+  let url: URL;
   try {
-    if (!s || typeof s.endpoint !== 'string' || s.endpoint.length > 1000) return false;
-    const u = new URL(s.endpoint);
-    if (u.protocol !== 'https:' || !PUSH_HOSTS.some((h) => u.hostname === h || u.hostname.endsWith(`.${h}`))) return false;
-    return typeof s.keys?.p256dh === 'string' && typeof s.keys?.auth === 'string' && s.keys.p256dh.length < 200 && s.keys.auth.length < 100;
+    url = new URL(endpoint);
   } catch {
     return false;
   }
+  if (url.protocol !== 'https:' || !PUSH_HOSTS.some((h) => url.hostname === h || url.hostname.endsWith(`.${h}`))) return false;
+  const { p256dh, auth } = keys ?? {};
+  return typeof p256dh === 'string' && typeof auth === 'string' && p256dh.length < 200 && auth.length < 100;
 }
 
 /** Store ONLY the opaque subscription object, keyed to the tip. Nothing else about the browser or device is kept. */
@@ -47,8 +52,9 @@ export async function notifyTipster(orgId: string, tipUuid: string): Promise<voi
     subs.map(async (s) => {
       try {
         await webpush.sendNotification(s.subscription, undefined, { TTL: 86400, timeout: 8000 });
-      } catch (e: any) {
-        if (e?.statusCode === 404 || e?.statusCode === 410) dead.push(s.id);
+      } catch (e) {
+        const status = (e as { statusCode?: number }).statusCode; // 404/410 = the browser unsubscribed; anything else is retried next time
+        if (status === 404 || status === 410) dead.push(s.id);
       }
     }),
   );

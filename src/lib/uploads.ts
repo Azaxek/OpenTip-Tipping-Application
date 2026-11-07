@@ -43,7 +43,8 @@ export async function ingest(org: Org, tipUuid: string, keys: unknown): Promise<
       const head = await storage.head(key);
       if (!head || head.size > org.av_mb * 1048576) throw new MediaError('missing or oversize');
       const clean = await sanitize(await storage.get(key));
-      if (head.size > capBytes(org, clean.kind) || (total += head.size) > org.tip_mb * 1048576) throw new MediaError('over limit');
+      total += head.size;
+    if (head.size > capBytes(org, clean.kind) || total > org.tip_mb * 1048576) throw new MediaError('over limit');
       const finalKey = `media/${org.id}/${tipUuid}/${randomUUID()}.${clean.ext}`;
       await storage.put(finalKey, clean.data, clean.mime);
       await withOrg(org.id, (q) =>

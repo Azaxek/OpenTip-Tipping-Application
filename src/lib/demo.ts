@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
-import { hashSecret } from './crypto';
+import { hashPasscode, hashSecret } from './crypto';
 import { system } from './db';
 import { DEMO_IMAGES } from './demo-assets';
 import { newTipId } from './ids';
@@ -10,6 +10,7 @@ import { createOrganization } from './setup';
 import type { Staff } from './staff';
 import { getStorage } from './storage';
 import { createTip, postTipsterMessage } from './tipster';
+import { DEMO_SLUG } from './url';
 
 /**
  * Everything a presenter needs for a live demonstration: a fully populated fictional Crime Stoppers program.
@@ -17,7 +18,7 @@ import { createTip, postTipsterMessage } from './tipster';
  * so they pass through the real metadata-stripping pipeline like any upload.
  */
 export const DEMO = {
-  slug: 'demo',
+  slug: DEMO_SLUG,
   orgName: 'Metro Area Crime Stoppers (Demo)',
   admin: { name: 'Dana Director', email: 'admin@demo.crimestoppers.example', password: 'CrimeStoppers-Demo1' },
   reviewer: { name: 'Riley Reviewer', email: 'reviewer@demo.crimestoppers.example', password: 'CrimeStoppers-Demo2' },
@@ -30,9 +31,9 @@ async function demoPdf() {
   doc.setTitle('Call log (demo)');
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const page = doc.addPage([420, 300]);
-  ['CALL LOG SUMMARY (fictional demo document)', '', 'Tue 2:14 PM  incoming  "County Utilities"  asks for gift cards', 'Tue 4:41 PM  incoming  same number, second attempt', 'Wed 10:05 AM incoming  hung up when questioned'].forEach((l, i) =>
-    page.drawText(l, { x: 24, y: 260 - i * 22, size: 11, font }),
-  );
+  ['CALL LOG SUMMARY (fictional demo document)', '', 'Tue 2:14 PM  incoming  "County Utilities"  asks for gift cards', 'Tue 4:41 PM  incoming  same number, second attempt', 'Wed 10:05 AM incoming  hung up when questioned'].forEach((l, i) => {
+    page.drawText(l, { x: 24, y: 260 - i * 22, size: 11, font });
+  });
   return Buffer.from(await doc.save());
 }
 
@@ -67,9 +68,15 @@ export async function demoStatus() {
   return { loaded: r[0].n > 0 };
 }
 
+/** True when this database also holds a program other than the demo one, i.e. DEMO_MODE must not be on. */
+export async function realProgramExists() {
+  return (await system((q) => q('select 1 from organizations where slug <> $1 limit 1', [DEMO.slug]))).length > 0;
+}
+
 /** Wipes the demo organization (rows cascade) and its files, then seeds a fresh, fully populated one. */
 export async function resetDemo() {
   if (process.env.DEMO_MODE !== '1') throw new Error('Demo data can only be loaded when DEMO_MODE=1');
+  if (await realProgramExists()) throw new Error('This database holds a real program, so demo data (with its published logins) will not be loaded. Remove DEMO_MODE.');
   const storage = getStorage();
 
   // 1. wipe
@@ -88,7 +95,7 @@ export async function resetDemo() {
     { allowMultiple: true },
   );
   const reviewerHash = await hashSecret(DEMO.reviewer.password);
-  const tipsterHash = await hashSecret(DEMO.tipster.passcode);
+  const tipsterHash = await hashPasscode(DEMO.tipster.passcode);
   const reviewerId = await system(async (q) => {
     // Uploads travel through a serverless function in the demo, so keep files small.
     await q('update organizations set image_mb = 4, doc_mb = 4, av_mb = 4, tip_mb = 12, max_files = 4 where id = $1', [orgId]);
@@ -192,7 +199,10 @@ export async function resetDemo() {
   const rnd = prng(20260925);
   const weighted = (mix: [string, number][]) => {
     let x = rnd() * mix.reduce((n, [, w]) => n + w, 0);
-    for (const [k, w] of mix) if ((x -= w) < 0) return k;
+    for (const [k, w] of mix) {
+    x -= w;
+    if (x < 0) return k;
+  }
     return mix[0][0];
   };
   const REASONS: [string, number][] = [['actioned', 45], ['unfounded', 25], ['referred', 20], ['other', 10]];

@@ -1,6 +1,6 @@
 import pg from 'pg';
 
-export type Q = <T = any>(text: string, params?: unknown[]) => Promise<T[]>;
+export type Q = <T = Record<string, unknown>>(text: string, params?: unknown[]) => Promise<T[]>;
 
 const g = globalThis as { __otPool?: pg.Pool };
 
@@ -48,14 +48,14 @@ function inline(c: pg.PoolClient, text: string, params: unknown[]): string {
 }
 
 const exec = async (c: pg.PoolClient, text: string, params: unknown[] = []) =>
-  (await (process.env.PG_SIMPLE_PROTOCOL ? c.query(inline(c, text, params)) : c.query(text, params as any[]))).rows;
+  (await (process.env.PG_SIMPLE_PROTOCOL ? c.query(inline(c, text, params)) : c.query(text, params))).rows;
 
 async function tx<T>(setup: (run: (text: string, params?: unknown[]) => Promise<unknown>) => Promise<void>, fn: (q: Q) => Promise<T>): Promise<T> {
   const c = await pool().connect();
   try {
     await c.query('begin');
     await setup((text, params) => exec(c, text, params));
-    const out = await fn((text, params) => exec(c, text, params) as Promise<any[]>);
+    const out = await fn(<T>(text: string, params?: unknown[]) => exec(c, text, params) as Promise<T[]>);
     await c.query('commit');
     return out;
   } catch (e) {

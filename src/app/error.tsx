@@ -1,6 +1,6 @@
 'use client';
 
-export default function Error({ reset }: { error: Error; reset: () => void }) {
+export default function ErrorPage({ reset }: { error: Error; reset: () => void }) {
   return (
     <main className="mx-auto max-w-xl p-6">
       <div className="card mt-10">

@@ -30,6 +30,12 @@ export function Card({ title, children, className = '' }: { title?: string; chil
   );
 }
 
+/** "340 KB" or "12.3 MB". Postgres returns bigint columns (file sizes) as strings, so accept either. */
+export function fileSize(bytes: string | number) {
+  const n = Number(bytes);
+  return n < 1_048_576 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1_048_576).toFixed(1)} MB`;
+}
+
 /** "12m", "5h", "3d" */
 export function dur(hours: number) {
   if (hours < 1) return `${Math.max(1, Math.round(hours * 60))}m`;

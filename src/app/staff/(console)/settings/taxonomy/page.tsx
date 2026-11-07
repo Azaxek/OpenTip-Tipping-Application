@@ -4,16 +4,19 @@ import { withOrg } from '@/lib/db';
 import { requireAdmin } from '@/lib/session';
 import { deleteTeamAction, importLocationsAction, saveCategoryAction, saveLocationAction, saveTeamAction } from '../../../admin-actions';
 
+type CategoryRow = { id: string; name: string; description: string; sort: number; active: boolean; high_risk: boolean };
+type LocationRow = { id: string; name: string; external_id: string | null; active: boolean };
+
 export const metadata = { title: 'Categories & teams' };
 
 export default async function Taxonomy({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const s = await requireAdmin();
   const sp = await searchParams;
   const data = await withOrg(s.orgId, async (q) => ({
-    categories: await q<any>('select * from categories order by sort, name'),
+    categories: await q<CategoryRow>('select id, name, description, sort, active, high_risk from categories order by sort, name'),
     links: await q<{ category_id: string; team_id: string }>('select category_id, team_id from category_teams'),
     teams: await q<{ id: string; name: string }>('select id, name from teams order by name'),
-    locations: await q<any>('select * from locations order by active desc, name'),
+    locations: await q<LocationRow>('select id, name, external_id, active from locations order by active desc, name'),
     teamLocs: await q<{ team_id: string; location_id: string }>('select team_id, location_id from team_locations'),
   }));
   const teamChecks = (catId: string | null) =>
@@ -30,7 +33,7 @@ export default async function Taxonomy({ searchParams }: { searchParams: Promise
       <Card title="Categories">
         <p className="mb-3 text-sm text-slate-600">What tipsters pick from. <strong>High-risk</strong> categories are pinned to the top of the queue and can be escalated. Checked teams receive tips in that category.</p>
         <div className="space-y-3">
-          {data.categories.map((c: any) => (
+          {data.categories.map((c) => (
             <form key={c.id} action={saveCategoryAction} className={`grid gap-2 rounded-lg border border-slate-200 p-3 lg:grid-cols-12 ${c.active ? '' : 'opacity-60'}`}>
               <input type="hidden" name="id" value={c.id} />
               <input name="name" defaultValue={c.name} className="input !py-1.5 text-sm lg:col-span-3" aria-label="Category name" required />
@@ -68,7 +71,7 @@ export default async function Taxonomy({ searchParams }: { searchParams: Promise
                     <details className="text-xs">
                       <summary className="cursor-pointer text-slate-600">{data.teamLocs.some((l) => l.team_id === t.id) ? 'Only some locations' : 'All locations'} (change)</summary>
                       <p className="my-1 text-slate-600">Tick locations to limit this team to tips from them. Tick none for all.</p>
-                      {data.locations.filter((l: any) => l.active).map((l: any) => (
+                      {data.locations.filter((l) => l.active).map((l) => (
                         <label key={l.id} className="flex items-center gap-1.5"><input type="checkbox" name="locationId" value={l.id} defaultChecked={data.teamLocs.some((x) => x.team_id === t.id && x.location_id === l.id)} className="size-4" />{l.name}</label>
                       ))}
                     </details>
@@ -83,7 +86,7 @@ export default async function Taxonomy({ searchParams }: { searchParams: Promise
 
         <Card title="Locations">
           <ul className="space-y-2">
-            {data.locations.map((l: any) => (
+            {data.locations.map((l) => (
               <li key={l.id}>
                 <form action={saveLocationAction} className="flex items-center gap-2">
                   <input type="hidden" name="id" value={l.id} />

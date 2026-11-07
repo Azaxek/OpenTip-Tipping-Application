@@ -34,7 +34,7 @@ export async function staffSignIn(orgId: string, email: string, password: string
       ),
     )
   )[0];
-  const usable = row && row.active && !row.locked;
+  const usable = row?.active && !row.locked;
   const ok = await verifySecret(usable ? row.password_hash : null, String(password).slice(0, 256));
   if (!row) return null;
   const fail = async () => {
@@ -78,7 +78,7 @@ export async function staffFromToken(token: string | undefined): Promise<Staff |
   if (!token) return null;
   const r = (
     await system((q) =>
-      q(
+      q<{ id: string; org_id: string; email: string; name: string; role: 'admin' | 'reviewer'; all_tips: boolean; on_call: boolean }>(
         `select r.id, r.org_id, r.email, r.name, r.role, r.all_tips, r.on_call
            from sessions s join reviewers r on r.id = s.reviewer_id
           where s.token_hash = $1 and s.expires_at > now() and r.active`,
@@ -92,6 +92,22 @@ export async function staffFromToken(token: string | undefined): Promise<Staff |
 export const staffLogout = (token: string) => system((q) => q('delete from sessions where token_hash = $1', [sha256(token)]));
 
 export const newPasswordHash = (pw: string) => hashSecret(pw);
+
+/**
+ * A person changing their own password. Needs the current one, and signs out every OTHER session (keepToken is the one in use),
+ * so a session someone else is holding does not outlive the change. False if the current password is wrong.
+ */
+export async function changePassword(s: Staff, keepToken: string | undefined, current: string, next: string): Promise<boolean> {
+  const nextHash = await hashSecret(next);
+  return withOrg(s.orgId, async (q) => {
+    const row = (await q<{ password_hash: string }>('select password_hash from reviewers where id = $1', [s.id]))[0];
+    if (!(await verifySecret(row?.password_hash, current))) return false;
+    await q('update reviewers set password_hash = $1 where id = $2', [nextHash, s.id]);
+    await q('delete from sessions where reviewer_id = $1 and token_hash <> $2', [s.id, sha256(keepToken ?? '')]);
+    await audit(q, s, 'auth.password_change');
+    return true;
+  });
+}
 
 /** SQL predicate limiting which tips a staff member may touch: admins/all_tips see all, others only routed or assigned. */
 export function visible(s: Staff, param: number, alias = 't'): string {

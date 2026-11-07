@@ -27,6 +27,32 @@ async function need(q: Q, s: Staff, tipId: string) {
   return t;
 }
 
+export type TipStatus = 'new' | 'under_review' | 'actioned' | 'closed';
+
+/** One line of the reviewer queue. Mirrors the select list in listQueue. */
+export type QueueRow = {
+  id: string;
+  tip_id: string;
+  status: TipStatus;
+  urgent: boolean;
+  high_risk: boolean;
+  /** urgent, high-risk category, or matched the keyword watch list (see PRIORITY). */
+  priority: boolean;
+  needs_reply: boolean;
+  waiting_since: Date | null;
+  assigned_reviewer_id: string | null;
+  source: 'web' | 'phone';
+  watch: boolean;
+  created_at: Date;
+  category: string;
+  location: string | null;
+  assignee: string | null;
+  teams: string | null;
+};
+
+/** Rows shown in the queue at most; the page says so when the list is cut off. Counts are computed separately (queueCounts). */
+export const QUEUE_LIMIT = 300;
+
 export type QueueFilter = {
   status?: string;
   categoryId?: string;
@@ -41,10 +67,13 @@ export type QueueFilter = {
   sort?: 'priority' | 'newest' | 'oldest';
 };
 
-export async function listQueue(s: Staff, f: QueueFilter = {}) {
+export async function listQueue(s: Staff, f: QueueFilter = {}): Promise<QueueRow[]> {
   const params: unknown[] = [s.id];
   const where = [visible(s, 1)];
-  const add = (sql: string, v: unknown) => (params.push(v), where.push(sql.replace('?', `$${params.length}`)));
+  const add = (sql: string, v: unknown) => {
+    params.push(v);
+    where.push(sql.replace('?', `$${params.length}`));
+  };
   if (f.status === 'all') { /* no status filter */ }
   else if (f.status && f.status !== 'open') add('t.status = ?', f.status);
   else where.push("t.status <> 'closed'");
@@ -66,7 +95,7 @@ export async function listQueue(s: Staff, f: QueueFilter = {}) {
     f.sort === 'newest' ? 't.created_at desc' : f.sort === 'oldest' ? 't.created_at asc'
     : `(t.status <> 'closed') desc, ${PRIORITY} desc, t.needs_reply desc, t.created_at desc`;
   return withOrg(s.orgId, (q) =>
-    q(
+    q<QueueRow>(
       `select t.id, t.tip_id, t.status, t.urgent, c.high_risk, ${PRIORITY} as priority, t.needs_reply, t.waiting_since, t.assigned_reviewer_id, t.source, cardinality(t.watch_hits) > 0 as watch,
               t.created_at, c.name as category, l.name as location, r.name as assignee,
               (select string_agg(tm.name, ', ' order by tm.name) from tip_teams tt join teams tm on tm.id = tt.team_id where tt.tip_id = t.id) as teams
@@ -74,11 +103,70 @@ export async function listQueue(s: Staff, f: QueueFilter = {}) {
          left join locations l on l.id = t.location_id
          left join reviewers r on r.id = t.assigned_reviewer_id
         where ${where.join(' and ')}
-        order by ${order} limit 300`,
+        order by ${order} limit ${QUEUE_LIMIT}`,
       params,
     ),
   );
 }
+
+export type QueueCounts = { open: number; needsReply: number; priority: number; mine: number };
+
+/** Exact tab counts for the people-visible open tips. A separate aggregate, so a busy queue is not undercounted by the row limit above. */
+export const queueCounts = (s: Staff): Promise<QueueCounts> =>
+  withOrg(s.orgId, async (q) => {
+    const [row] = await q<QueueCounts>(
+      `select count(*)::int as open,
+              (count(*) filter (where t.needs_reply))::int as "needsReply",
+              (count(*) filter (where ${PRIORITY}))::int as priority,
+              (count(*) filter (where t.assigned_reviewer_id = $1))::int as mine
+         from tips t join categories c on c.id = t.category_id
+        where ${visible(s, 1)} and t.status <> 'closed'`,
+      [s.id],
+    );
+    return row ?? { open: 0, needsReply: 0, priority: 0, mine: 0 };
+  });
+
+/** The tip as a reviewer sees it. Columns are listed explicitly so the passcode and claim-code hashes are never even loaded. */
+export type TipDetailRow = {
+  id: string;
+  org_id: string;
+  tip_id: string;
+  location_id: string | null;
+  category_id: string;
+  urgent: boolean;
+  description: string;
+  status: TipStatus;
+  needs_reply: boolean;
+  assigned_reviewer_id: string | null;
+  closure_reason: 'actioned' | 'unfounded' | 'referred' | 'other' | null;
+  closure_note: string | null;
+  closed_at: Date | null;
+  first_response_at: Date | null;
+  reward_eligible: boolean;
+  reward_amount_cents: number | null;
+  claim_code_revealed_at: Date | null;
+  claimed_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+  source: 'web' | 'phone';
+  watch_hits: string[];
+  waiting_since: Date | null;
+  bulletin_id: string | null;
+  category: string;
+  high_risk: boolean;
+  location: string | null;
+  assignee_name: string | null;
+  bulletin_title: string | null;
+  bulletin_case: string | null;
+};
+export type MediaRow = { id: string; kind: 'image' | 'video' | 'audio' | 'document'; mime: string; size_bytes: string; created_at: Date };
+export type NoteRow = { id: string; body: string; created_at: Date; author: string | null };
+export type NamedRow = { id: string; name: string };
+export type CannedRow = { id: string; title: string; body: string; category_id: string | null };
+
+const TIP_DETAIL_COLUMNS = `t.id, t.org_id, t.tip_id, t.location_id, t.category_id, t.urgent, t.description, t.status, t.needs_reply, t.assigned_reviewer_id,
+  t.closure_reason, t.closure_note, t.closed_at, t.first_response_at, t.reward_eligible, t.reward_amount_cents, t.claim_code_revealed_at, t.claimed_at,
+  t.created_at, t.updated_at, t.source, t.watch_hits, t.waiting_since, t.bulletin_id`;
 
 /** True while the tip is still visible to this staff member (routing or assignment changes can remove access). */
 export const canView = (s: Staff, tipId: string) => withOrg(s.orgId, async (q) => !!(await guard(q, s, tipId)));
@@ -87,24 +175,23 @@ export async function getTipDetail(s: Staff, tipId: string) {
   return withOrg(s.orgId, async (q) => {
     const base = await guard(q, s, tipId);
     if (!base) return null;
-    const [tip] = await q(
-      `select t.*, c.name as category, c.high_risk, l.name as location, r.name as assignee_name, b.title as bulletin_title, b.case_number as bulletin_case
+    const [tip] = await q<TipDetailRow>(
+      `select ${TIP_DETAIL_COLUMNS}, c.name as category, c.high_risk, l.name as location, r.name as assignee_name, b.title as bulletin_title, b.case_number as bulletin_case
          from tips t join categories c on c.id = t.category_id
          left join locations l on l.id = t.location_id left join reviewers r on r.id = t.assigned_reviewer_id
          left join bulletins b on b.id = t.bulletin_id
         where t.id = $1`,
       [tipId],
     );
-    delete tip.passcode_hash;
-    delete tip.claim_code_hash;
-    const media = await q('select id, kind, mime, size_bytes, created_at from media where tip_id = $1 order by created_at', [tipId]);
-    const notes = await q('select n.id, n.body, n.created_at, r.name as author from internal_notes n left join reviewers r on r.id = n.reviewer_id where n.tip_id = $1 order by n.created_at', [tipId]);
-    const teams = await q('select id, name from teams order by name');
-    const tipTeams = await q('select team_id from tip_teams where tip_id = $1', [tipId]);
-    const reviewers = await q('select id, name from reviewers where active order by name');
-    const canned = await q('select id, title, body, category_id from canned_responses where category_id is null or category_id = $1 order by title', [tip.category_id]);
+    if (!tip) return null; // vanished between the guard and the read (deleted by the retention purge)
+    const media = await q<MediaRow>('select id, kind, mime, size_bytes, created_at from media where tip_id = $1 order by created_at', [tipId]);
+    const notes = await q<NoteRow>('select n.id, n.body, n.created_at, r.name as author from internal_notes n left join reviewers r on r.id = n.reviewer_id where n.tip_id = $1 order by n.created_at', [tipId]);
+    const teams = await q<NamedRow>('select id, name from teams order by name');
+    const tipTeams = await q<{ team_id: string }>('select team_id from tip_teams where tip_id = $1', [tipId]);
+    const reviewers = await q<NamedRow>('select id, name from reviewers where active order by name');
+    const canned = await q<CannedRow>('select id, title, body, category_id from canned_responses where category_id is null or category_id = $1 order by title', [tip.category_id]);
     await audit(q, s, 'tip.view', tip.tip_id);
-    return { tip, media, notes, teams, tipTeamIds: tipTeams.map((r: any) => r.team_id as string), reviewers, canned };
+    return { tip, media, notes, teams, tipTeamIds: tipTeams.map((r) => r.team_id), reviewers, canned };
   });
 }
 
@@ -225,19 +312,19 @@ const CLAIM_MAX_FAILS = 5;
 const CLAIM_LOCK_MINUTES = 15;
 
 /** Staff enters the TIP ID + code the tipster read out. Failed guesses lock the tip for a while. */
-export async function redeemClaim(s: Staff, tipIdInput: string, codeInput: string): Promise<{ ok: boolean; message: string; amountCents?: number }> {
+export async function redeemClaim(s: Staff, tipIdInput: string, codeInput: string): Promise<{ ok: boolean; message: string; amountCents?: number | null }> {
   const tipId = canonicalTipId(tipIdInput);
   const code = canonicalClaimCode(codeInput);
   if (!tipId || !code) return { ok: false, message: 'Enter a valid TIP ID and claim code.' };
   return withOrg(s.orgId, async (q) => {
     const t = (
-      await q<any>(
+      await q<{ id: string; claim_code_hash: string | null; claimed_at: Date | null; reward_amount_cents: number | null; reward_eligible: boolean; locked: boolean }>(
         `select t.id, t.claim_code_hash, t.claimed_at, t.reward_amount_cents, t.reward_eligible, coalesce(t.claim_locked_until > now(), false) as locked
            from tips t where t.tip_id = $1 and ${visible(s, 2)}`,
         [tipId, s.id],
       )
     )[0];
-    const usable = t && t.reward_eligible && !t.claimed_at && !t.locked;
+    const usable = t?.reward_eligible && !t.claimed_at && !t.locked;
     const ok = await verifySecret(usable ? t.claim_code_hash : null, code);
     if (ok) {
       const won = await q('update tips set claimed_at = now(), claim_failed_attempts = 0 where id = $1 and claimed_at is null returning id', [t.id]);

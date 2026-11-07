@@ -2,7 +2,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { AmountChips } from '@/components/staff/AmountChips';
 import { ChatPanel } from '@/components/staff/ChatPanel';
-import { Card, Flash, StatusBadge, UrgentBadge, Waiting, when } from '@/components/staff/ui';
+import { Card, Flash, StatusBadge, UrgentBadge, Waiting, fileSize, when } from '@/components/staff/ui';
 import { withOrg } from '@/lib/db';
 import { getTipDetail } from '@/lib/queue';
 import { requireStaff } from '@/lib/session';
@@ -28,7 +28,7 @@ export default async function TipPage({ params, searchParams }: { params: Promis
 
   return (
     <div className="space-y-4">
-      <Link href="/staff" className="link text-sm">← Queue</Link>
+      <Link href="/staff" className="link inline-block py-1 text-sm">← Queue</Link>
       <Flash e={sp.e} ok={sp.ok} />
       {sp.esc === 'ok' && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm font-semibold text-green-900">Escalation sent to your configured channels and logged.</p>}
       {sp.esc === 'sim' && (
@@ -59,20 +59,23 @@ export default async function TipPage({ params, searchParams }: { params: Promis
         <div className="space-y-4 lg:col-span-2">
           <Card title="Description">
             {hits.length > 0 && <p className="mb-3 rounded-lg bg-orange-50 p-2 text-sm font-semibold text-orange-950">Matched your watch list: {hits.join(', ')}. This tip is pinned as a priority.</p>}
-            {tip.description ? <p className="whitespace-pre-wrap">{highlight(tip.description, hits).map(([t, hit], i) => (hit ? <mark key={i} className="rounded bg-orange-200 px-0.5">{t}</mark> : t))}</p> : <p className="text-slate-600">No written description (evidence only).</p>}
+            {tip.description ? <p className="whitespace-pre-wrap">{/* biome-ignore lint/suspicious/noArrayIndexKey: segments of one fixed string, never reordered */}
+            {highlight(tip.description, hits).map(([t, hit], i) => (hit ? <mark key={i} className="rounded bg-orange-200 px-0.5">{t}</mark> : t))}</p> : <p className="text-slate-600">No written description (evidence only).</p>}
           </Card>
 
           {media.length > 0 && (
             <Card title={`Evidence (${media.length})`}>
               <p className="mb-3 text-xs text-slate-600">Metadata was stripped from every file on upload.</p>
               <div className="grid gap-3 sm:grid-cols-2">
-                {media.map((m: any) => (
+                {media.map((m) => (
                   <figure key={m.id} className="overflow-hidden rounded-lg border border-slate-200 bg-slate-50 p-2">
-                    {m.kind === 'image' && /* eslint-disable-next-line @next/next/no-img-element */ <img src={`/staff/media/${m.id}`} alt="Evidence photo" className="max-h-72 w-full object-contain" loading="lazy" />}
+                    {m.kind === 'image' && /* eslint-disable-next-line @next/next/no-img-element */ <img src={`/staff/media/${m.id}`} alt="Evidence attached by the tipster" className="max-h-72 w-full object-contain" loading="lazy" />}
+                    {/* biome-ignore lint/a11y/useMediaCaption: tipster evidence has no caption track */}
                     {m.kind === 'video' && <video src={`/staff/media/${m.id}`} controls preload="metadata" className="max-h-72 w-full" />}
+                    {/* biome-ignore lint/a11y/useMediaCaption: tipster evidence has no caption track */}
                     {m.kind === 'audio' && <audio src={`/staff/media/${m.id}`} controls preload="metadata" className="w-full" />}
                     {m.kind === 'document' && <iframe src={`/staff/media/${m.id}`} title="PDF preview" className="h-72 w-full" />}
-                    <figcaption className="mt-1 flex justify-between text-xs text-slate-600"><span>{m.mime} · {m.size_bytes < 1048576 ? `${Math.max(1, Math.round(m.size_bytes / 1024))} KB` : `${(m.size_bytes / 1048576).toFixed(1)} MB`}</span><a className="link" href={`/staff/media/${m.id}`} target="_blank" rel="noreferrer">Open</a></figcaption>
+                    <figcaption className="mt-1 flex justify-between text-xs text-slate-600"><span>{m.mime} · {fileSize(m.size_bytes)}</span><a className="link inline-block py-1" href={`/staff/media/${m.id}`} target="_blank" rel="noreferrer">Open</a></figcaption>
                   </figure>
                 ))}
               </div>
@@ -107,14 +110,14 @@ export default async function TipPage({ params, searchParams }: { params: Promis
               {hidden}
               <select name="reviewerId" defaultValue={tip.assigned_reviewer_id ?? ''} className="input !py-1.5 text-sm" aria-label="Assigned reviewer">
                 <option value="">Unassigned</option>
-                {reviewers.map((r: any) => <option key={r.id} value={r.id}>{r.name}</option>)}
+                {reviewers.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
               </select>
               <button className="btn !min-h-9 text-xs">Assign</button>
             </form>
             <form action={routeAction} className="mt-3 space-y-1 border-t border-slate-200 pt-3">
               {hidden}
               <p className="label">Teams that see this tip</p>
-              {teams.map((t: any) => <label key={t.id} className="flex items-center gap-2 text-sm"><input type="checkbox" name="teamId" value={t.id} defaultChecked={tipTeamIds.includes(t.id)} className="size-4" />{t.name}</label>)}
+              {teams.map((t) => <label key={t.id} className="flex items-center gap-2 text-sm"><input type="checkbox" name="teamId" value={t.id} defaultChecked={tipTeamIds.includes(t.id)} className="size-4" />{t.name}</label>)}
               <button className="btn !min-h-9 text-xs">Save routing</button>
               <p className="hint">Tips with no team are visible only to admins and staff with all-tips access.</p>
             </form>
@@ -147,7 +150,7 @@ export default async function TipPage({ params, searchParams }: { params: Promis
 
           <Card title="Internal notes (staff only)">
             <ul className="mb-3 space-y-2">
-              {notes.map((n: any) => <li key={n.id} className="rounded-lg bg-amber-50 p-2 text-sm"><p className="whitespace-pre-wrap">{n.body}</p><p className="mt-1 text-[11px] text-slate-600">{n.author ?? 'Staff'} · {when(n.created_at)}</p></li>)}
+              {notes.map((n) => <li key={n.id} className="rounded-lg bg-amber-50 p-2 text-sm"><p className="whitespace-pre-wrap">{n.body}</p><p className="mt-1 text-[11px] text-slate-600">{n.author ?? 'Staff'} · {when(n.created_at)}</p></li>)}
               {notes.length === 0 && <li className="text-sm text-slate-600">No notes.</li>}
             </ul>
             <form action={noteAction} className="space-y-2">{hidden}<textarea name="body" className="input text-sm" maxLength={5000} required placeholder="Add a note. The tipster never sees this." /><button className="btn !min-h-9 text-xs">Add note</button></form>

@@ -1,6 +1,7 @@
 import { SettingsNav } from '@/components/staff/SettingsNav';
 import { Card, Flash } from '@/components/staff/ui';
 import { withOrg } from '@/lib/db';
+import type { CannedRow } from '@/lib/queue';
 import { requireAdmin } from '@/lib/session';
 import { deleteCannedAction, saveCannedAction } from '../../../admin-actions';
 
@@ -10,7 +11,7 @@ export default async function Canned({ searchParams }: { searchParams: Promise<R
   const s = await requireAdmin();
   const sp = await searchParams;
   const { rows, cats } = await withOrg(s.orgId, async (q) => ({
-    rows: await q<any>('select id, title, body, category_id from canned_responses order by title'),
+    rows: await q<CannedRow>('select id, title, body, category_id from canned_responses order by title'),
     cats: await q<{ id: string; name: string }>('select id, name from categories order by sort, name'),
   }));
   const catSelect = (v: string | null) => (
@@ -25,7 +26,7 @@ export default async function Canned({ searchParams }: { searchParams: Promise<R
       <Card title="Canned responses">
         <p className="mb-3 text-sm text-slate-600">One-click replies reviewers can insert into chat. Tie one to a category (for example a crisis-line list for self-harm) or leave it for all. This app never provides crisis counseling itself; these are static resources.</p>
         <div className="space-y-3">
-          {rows.map((r: any) => (
+          {rows.map((r) => (
             <div key={r.id} className="rounded-lg border border-slate-200 p-3">
               <form action={saveCannedAction} className="space-y-2">
                 <input type="hidden" name="id" value={r.id} />

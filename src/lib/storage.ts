@@ -23,7 +23,10 @@ const assertKey = (key: string) => {
 
 function fsStorage(): Storage {
   const root = path.resolve(/*turbopackIgnore: true*/ process.env.STORAGE_DIR || '.storage');
-  const file = (key: string) => (assertKey(key), path.join(/*turbopackIgnore: true*/ root, ...key.split('/')));
+  const file = (key: string) => {
+    assertKey(key);
+    return path.join(/*turbopackIgnore: true*/ root, ...key.split('/'));
+  };
   return {
     async presignPut(key, _ct, size) {
       assertKey(key);
@@ -154,11 +157,12 @@ export function storageConfigured(): boolean {
   return !!(process.env.S3_BUCKET && process.env.S3_ACCESS_KEY_ID && process.env.S3_SECRET_ACCESS_KEY);
 }
 
-const why = (e: any): string => {
-  const name = String(e?.name ?? e?.Code ?? e?.code ?? '');
+const why = (e: unknown): string => {
+  const err = e as { name?: string; Code?: string; code?: string; message?: string } | null;
+  const name = String(err?.name ?? err?.Code ?? err?.code ?? '');
   if (/NoSuchBucket/i.test(name)) return 'The bucket name (S3_BUCKET) was not found in that account. Check the spelling.';
   if (/InvalidAccessKeyId|SignatureDoesNotMatch|AccessDenied|Forbidden|Unauthorized/i.test(name)) return 'The storage provider refused the keys. Check S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY, and that the token has "Object Read & Write" permission on this bucket.';
-  if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|UnknownEndpoint|TimeoutError/i.test(name + String(e?.message))) return 'Could not reach the storage address (S3_ENDPOINT). It should look like https://<account-id>.r2.cloudflarestorage.com, with no bucket name on the end.';
+  if (/ENOTFOUND|EAI_AGAIN|ECONNREFUSED|ETIMEDOUT|UnknownEndpoint|TimeoutError/i.test(name + String(err?.message))) return 'Could not reach the storage address (S3_ENDPOINT). It should look like https://<account-id>.r2.cloudflarestorage.com, with no bucket name on the end.';
   return `The storage test failed (${name || 'error'}). Check all four S3_ settings.`;
 };
 
@@ -178,10 +182,12 @@ export async function storageSelfTest(): Promise<{ ok: boolean; message: string 
   }
 }
 
-let cached: { driver: string; s: Storage } | undefined;
+let cached: { key: string; s: Storage } | undefined;
 export function getStorage(): Storage {
   const d = process.env.STORAGE_DRIVER;
   const driver = d === 'fs' || d === 'db' ? d : 's3';
-  if (cached?.driver !== driver) cached = { driver, s: driver === 'fs' ? fsStorage() : driver === 'db' ? dbStorage() : s3Storage() };
+  // Keyed by every setting the instance is built from, so a changed folder, bucket or key never serves a stale one.
+  const key = [driver, process.env.STORAGE_DIR, process.env.S3_ENDPOINT, process.env.S3_BUCKET, process.env.S3_ACCESS_KEY_ID].join('|');
+  if (cached?.key !== key) cached = { key, s: driver === 'fs' ? fsStorage() : driver === 'db' ? dbStorage() : s3Storage() };
   return cached.s;
 }

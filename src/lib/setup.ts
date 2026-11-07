@@ -36,12 +36,12 @@ export async function createOrganization(i: SetupInput, opts: { allowMultiple?: 
     )[0].id as string;
 
     const teamIds: Record<string, string> = {};
-    for (const t of tax.teams) teamIds[t] = (await q('insert into teams (org_id, name) values ($1, $2) returning id', [org, t]))[0].id;
+    for (const t of tax.teams) teamIds[t] = (await q<{ id: string }>('insert into teams (org_id, name) values ($1, $2) returning id', [org, t]))[0].id;
 
     const catIds: Record<string, string> = {};
     for (const [n, c] of tax.categories.entries()) {
       const cat = (
-        await q('insert into categories (org_id, name, description, sort, high_risk) values ($1, $2, $3, $4, $5) returning id', [org, c.name, c.description, n, !!c.highRisk])
+        await q<{ id: string }>('insert into categories (org_id, name, description, sort, high_risk) values ($1, $2, $3, $4, $5) returning id', [org, c.name, c.description, n, !!c.highRisk])
       )[0].id;
       catIds[c.name] = cat;
       // Every category routes to the catch-all team (first team) plus any specialist teams.

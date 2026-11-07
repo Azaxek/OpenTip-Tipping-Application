@@ -31,16 +31,16 @@ export async function report(s: Staff, f: ReportFilter): Promise<Report> {
   const hours = (expr: string) => `round((${expr} / 3600)::numeric, 2)::float`;
 
   return withOrg(s.orgId, async (q) => {
-    const [totals] = await q<any>(
+    const [totals] = await q<Report['totals']>(
       `select count(*)::int as tips, count(*) filter (where t.status <> 'closed')::int as open,
               count(*) filter (where t.status = 'closed')::int as closed, count(*) filter (where t.urgent)::int as urgent
          from tips t where ${w}`,
       params,
     );
-    const volume = await q<any>(`select to_char(date_trunc('${bucket}', t.created_at at time zone $3), 'YYYY-MM-DD') as bucket, count(*)::int as count from tips t where ${w} group by 1 order by 1`, params);
-    const categories = await q<any>(`select c.name, count(*)::int as count from tips t join categories c on c.id = t.category_id where ${w} group by c.name order by count desc, c.name`, params);
-    const closures = await q<any>(`select t.closure_reason as reason, count(*)::int as count from tips t where ${w} and t.status = 'closed' group by 1 order by count desc`, params);
-    const [timings] = await q<any>(
+    const volume = await q<Report['volume'][number]>(`select to_char(date_trunc('${bucket}', t.created_at at time zone $3), 'YYYY-MM-DD') as bucket, count(*)::int as count from tips t where ${w} group by 1 order by 1`, params);
+    const categories = await q<Report['categories'][number]>(`select c.name, count(*)::int as count from tips t join categories c on c.id = t.category_id where ${w} group by c.name order by count desc, c.name`, params);
+    const closures = await q<Report['closures'][number]>(`select t.closure_reason as reason, count(*)::int as count from tips t where ${w} and t.status = 'closed' group by 1 order by count desc`, params);
+    const [timings] = await q<Report['timings']>(
       `select ${hours("percentile_cont(0.5) within group (order by extract(epoch from t.first_response_at - t.created_at))")} as "firstResponseMedianH",
               ${hours('avg(extract(epoch from t.first_response_at - t.created_at))')} as "firstResponseAvgH",
               ${hours("percentile_cont(0.5) within group (order by extract(epoch from t.closed_at - t.created_at))")} as "closureMedianH",
@@ -49,7 +49,7 @@ export async function report(s: Staff, f: ReportFilter): Promise<Report> {
       params,
     );
     // "Paid" is by claim date, so the total matches what staff actually paid out in the period.
-    const [rewards] = await q<any>(
+    const [rewards] = await q<Report['rewards']>(
       `select count(*) filter (where t.reward_eligible)::int as eligible,
               (select count(*)::int from tips t where t.claimed_at is not null and ${inRange('t.claimed_at')}) as claimed,
               (select coalesce(sum(t.reward_amount_cents), 0)::int from tips t where t.claimed_at is not null and ${inRange('t.claimed_at')}) as "paidCents"

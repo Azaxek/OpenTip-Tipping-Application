@@ -4,17 +4,19 @@ import { withOrg } from '@/lib/db';
 import { requireAdmin } from '@/lib/session';
 import { createReviewerAction, resetPasswordAction, resetTwoStepAction, saveReviewerAction } from '../../../admin-actions';
 
+type PersonRow = { id: string; name: string; email: string; role: 'admin' | 'reviewer'; all_tips: boolean; on_call: boolean; notify_new: boolean; totp_enabled: boolean; active: boolean };
+
 export const metadata = { title: 'People' };
 
 export default async function People({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const s = await requireAdmin();
   const sp = await searchParams;
   const { people, teams, members } = await withOrg(s.orgId, async (q) => ({
-    people: await q<any>('select id, name, email, role, all_tips, on_call, notify_new, totp_enabled, active from reviewers order by active desc, name'),
+    people: await q<PersonRow>('select id, name, email, role, all_tips, on_call, notify_new, totp_enabled, active from reviewers order by active desc, name'),
     teams: await q<{ id: string; name: string }>('select id, name from teams order by name'),
     members: await q<{ team_id: string; reviewer_id: string }>('select team_id, reviewer_id from team_members'),
   }));
-  const onCall = people.filter((p: any) => p.active && p.on_call).length;
+  const onCall = people.filter((p) => p.active && p.on_call).length;
   return (
     <div className="space-y-4">
       <SettingsNav current="/staff/settings/people" />
@@ -23,7 +25,7 @@ export default async function People({ searchParams }: { searchParams: Promise<R
 
       <Card title="Staff">
         <div className="space-y-3">
-          {people.map((p: any) => (
+          {people.map((p) => (
             <div key={p.id} className={`rounded-lg border border-slate-200 p-3 ${p.active ? '' : 'opacity-60'}`}>
               <form action={saveReviewerAction} className="grid gap-2 md:grid-cols-12">
                 <input type="hidden" name="id" value={p.id} />

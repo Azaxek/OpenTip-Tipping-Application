@@ -5,13 +5,15 @@ import { requireStaff } from '@/lib/session';
 import { visible } from '@/lib/staff';
 import { redeemAction } from '../../actions';
 
+type RewardRow = { id: string; tip_id: string; reward_amount_cents: number | null; claim_code_revealed_at: Date | null; claimed_at: Date | null };
+
 export const metadata = { title: 'Rewards' };
 
 export default async function Rewards({ searchParams }: { searchParams: Promise<Record<string, string | undefined>> }) {
   const s = await requireStaff();
   const sp = await searchParams;
   const rows = await withOrg(s.orgId, (q) =>
-    q<any>(
+    q<RewardRow>(
       `select t.id, t.tip_id, t.reward_amount_cents, t.claim_code_revealed_at, t.claimed_at
          from tips t where t.reward_eligible and ${visible(s, 1)} order by t.claimed_at nulls first, t.updated_at desc limit 200`,
       [s.id],
@@ -35,7 +37,7 @@ export default async function Rewards({ searchParams }: { searchParams: Promise<
             <thead className="text-xs uppercase text-slate-600"><tr><th className="py-2">Tip</th><th>Amount</th><th>Code viewed by tipster</th><th>Claimed</th></tr></thead>
             <tbody>
               {rows.length === 0 && <tr><td colSpan={4} className="py-4 text-slate-600">No reward-eligible tips yet.</td></tr>}
-              {rows.map((r: any) => (
+              {rows.map((r) => (
                 <tr key={r.id} className="border-t border-slate-100">
                   <td className="py-2"><Link className="link font-mono" href={`/staff/tips/${r.id}`}>{r.tip_id}</Link></td>
                   <td>${((r.reward_amount_cents ?? 0) / 100).toFixed(2)}</td>

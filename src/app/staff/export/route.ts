@@ -8,11 +8,11 @@ import { currentStaff } from '@/lib/session';
 
 export async function GET(req: Request) {
   const s = await currentStaff();
-  if (!s || s.role !== 'admin') return fail('Unauthorized', 401);
+  if (s?.role !== 'admin') return fail('Unauthorized', 401);
   const u = new URL(req.url).searchParams;
   const format = u.get('format') === 'pdf' ? 'pdf' : 'csv';
   const filter = { from: u.get('from') ?? '', to: u.get('to') ?? '', bucket: (u.get('bucket') as 'day' | 'week' | 'month') ?? 'day', locationId: u.get('location') ?? undefined, categoryId: u.get('category') ?? undefined };
-  let r;
+  let r: Awaited<ReturnType<typeof report>>;
   try { r = await report(s, filter); } catch { return fail('Invalid date range'); }
   await withOrg(s.orgId, (q) => audit(q, s, 'report.export', null, { format, from: filter.from, to: filter.to }));
   const name = `opentip-report-${filter.from}-to-${filter.to}.${format}`;

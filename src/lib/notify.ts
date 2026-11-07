@@ -12,7 +12,7 @@ export type AlertResult = { email: ChannelResult; webhook: ChannelResult; recipi
 export async function alertStaff(orgId: string, tipUuid: string, kind: 'new' | 'reply'): Promise<AlertResult> {
   const ctx = await withOrg(orgId, async (q) => {
     const t = (
-      await q<any>(
+      await q<{ tip_id: string; urgent: boolean; assigned_reviewer_id: string | null; source: 'web' | 'phone'; watch: boolean; category: string; high_risk: boolean; location: string | null }>(
         `select t.tip_id, t.urgent, t.assigned_reviewer_id, t.source, cardinality(t.watch_hits) > 0 as watch, c.name as category, c.high_risk, l.name as location
            from tips t join categories c on c.id = t.category_id left join locations l on l.id = t.location_id where t.id = $1`,
         [tipUuid],

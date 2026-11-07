@@ -26,7 +26,7 @@ export function reportCsv(r: Report): string {
     [],
     ['Rewards', 'value'], ['eligible tips', r.rewards.eligible], ['claimed in period', r.rewards.claimed], ['paid in period (USD)', (r.rewards.paidCents / 100).toFixed(2)],
   ];
-  return rows.map((row) => row.map(csvCell).join(',')).join('\n') + '\n';
+  return `${rows.map((row) => row.map(csvCell).join(',')).join('\n')}\n`;
 }
 
 export async function reportPdf(r: Report, orgName: string): Promise<Uint8Array> {
@@ -52,15 +52,15 @@ export async function reportPdf(r: Report, orgName: string): Promise<Uint8Array>
   line(`Time to closure - median ${hrs(r.timings.closureMedianH)}, average ${hrs(r.timings.closureAvgH)}`);
   y -= 6;
   line('Tips by category', true, 13);
-  r.categories.forEach((c) => line(`${c.name}: ${c.count}`));
+  for (const c of r.categories) line(`${c.name}: ${c.count}`);
   y -= 6;
   line('Closure reasons', true, 13);
-  r.closures.forEach((c) => line(`${c.reason}: ${c.count}`));
+  for (const c of r.closures) line(`${c.reason}: ${c.count}`);
   y -= 6;
   line('Rewards', true, 13);
   line(`Eligible tips: ${r.rewards.eligible}   Claimed in period: ${r.rewards.claimed}   Paid in period: $${(r.rewards.paidCents / 100).toFixed(2)}`);
   y -= 6;
   line(`Tip volume by ${r.filter.bucket}`, true, 13);
-  r.volume.forEach((v) => line(`${v.bucket}: ${v.count}`));
+  for (const v of r.volume) line(`${v.bucket}: ${v.count}`);
   return doc.save();
 }

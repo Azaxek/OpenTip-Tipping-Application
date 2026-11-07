@@ -1,10 +1,12 @@
 import { afterResponse } from './after';
-import { hashSecret, signToken, verifySecret, verifyToken } from './crypto';
+import { hashPasscode, hashSecret, isPeppered, signToken, verifyPasscode, verifyToken } from './crypto';
 import { withOrg } from './db';
 import { canonicalTipId, newClaimCode, newTipId } from './ids';
+import { canonicalPasscode } from './passphrase';
 import { localizeCategory, localizeOrgText, type Lang } from './i18n';
 import { alertStaff } from './notify';
 import type { Org } from './org';
+import type { OrgType } from './taxonomy';
 import { ingest } from './uploads';
 import { parseKeywords, watchHits } from './watch';
 
@@ -41,10 +43,9 @@ export async function createTip(org: Org, input: NewTip) {
   const keys = input.attachmentKeys ?? [];
   if (description.length > 5000) throw new InputError('Description is too long (5,000 characters max).');
   if (!description && keys.length === 0) throw new InputError('Please describe what you know or attach evidence.');
-  if (typeof input.passcode !== 'string' || input.passcode.length < PASSCODE_MIN || input.passcode.length > 128) {
-    throw new InputError(`Passcode must be at least ${PASSCODE_MIN} characters.`);
-  }
-  const passcodeHash = await hashSecret(input.passcode);
+  const passcode = typeof input.passcode === 'string' && input.passcode.length <= 128 ? canonicalPasscode(input.passcode) : '';
+  if (passcode.length < PASSCODE_MIN) throw new InputError(`Passcode must be at least ${PASSCODE_MIN} characters.`);
+  const passcodeHash = await hashPasscode(passcode);
 
   const created = await withOrg(org.id, async (q) => {
     const cat = await q('select id from categories where id = $1 and active', [input.categoryId]);
@@ -82,14 +83,19 @@ export async function createTip(org: Org, input: NewTip) {
 /** TIP ID + passcode -> session token. Uniform failure; per-TIP-ID lockout (no IP is involved or stored). */
 export async function tipsterLogin(org: Org, tipIdInput: unknown, passcode: unknown): Promise<string | null> {
   const tipId = canonicalTipId(tipIdInput);
-  const pass = typeof passcode === 'string' ? passcode.slice(0, 128) : '';
+  const pass = typeof passcode === 'string' ? canonicalPasscode(passcode.slice(0, 128)) : '';
   const row = tipId
     ? (await withOrg(org.id, (q) => q<{ id: string; passcode_hash: string; locked: boolean }>('select id, passcode_hash, coalesce(locked_until > now(), false) as locked from tips where tip_id = $1', [tipId])))[0]
     : undefined;
-  const ok = await verifySecret(row && !row.locked ? row.passcode_hash : null, pass);
+  const ok = await verifyPasscode(row && !row.locked ? row.passcode_hash : null, pass);
   if (!row) return null;
   if (ok) {
-    await withOrg(org.id, (q) => q('update tips set failed_attempts = 0, locked_until = null where id = $1 and failed_attempts > 0', [row.id]));
+    // A passcode stored before the key existed is re-keyed on its next successful sign-in.
+    const rekeyed = isPeppered(row.passcode_hash) ? null : await hashPasscode(pass);
+    await withOrg(org.id, async (q) => {
+      await q('update tips set failed_attempts = 0, locked_until = null where id = $1 and failed_attempts > 0', [row.id]);
+      if (rekeyed) await q('update tips set passcode_hash = $2 where id = $1', [row.id, rekeyed]);
+    });
     return tipToken(org.id, row.id);
   }
   if (!row.locked) {
@@ -105,9 +111,22 @@ export async function tipsterLogin(org: Org, tipIdInput: unknown, passcode: unkn
   return null;
 }
 
-export async function getTipStatus(orgId: string, tipUuid: string, lang: Lang = 'en') {
+/** What the tipster's status page shows. Sent to the browser as-is, so it contains nothing a tipster should not see. */
+export type TipStatusView = {
+  status: 'new' | 'under_review' | 'actioned' | 'closed';
+  created_at: Date;
+  category: string;
+  reward_eligible: boolean;
+  reward_amount_cents: number | null;
+  claim_code_shown: boolean;
+  claimed: boolean;
+  note: string;
+  resources: string;
+};
+
+export async function getTipStatus(orgId: string, tipUuid: string, lang: Lang = 'en'): Promise<TipStatusView | null> {
   const rows = await withOrg(orgId, (q) =>
-    q(
+    q<Omit<TipStatusView, 'note' | 'resources'> & { category_description: string; note: string; resources: string; tipster_note_es: string; help_text_es: string; org_type: OrgType }>(
       `select t.status, t.created_at, c.name as category, c.description as category_description, t.reward_eligible, t.reward_amount_cents,
               (t.claim_code_revealed_at is not null) as claim_code_shown, (t.claimed_at is not null) as claimed,
               o.tipster_note as note, o.help_text as resources, o.tipster_note_es, o.help_text_es, o.org_type
@@ -118,7 +137,7 @@ export async function getTipStatus(orgId: string, tipUuid: string, lang: Lang = 
   const r = rows[0];
   if (!r) return null;
   const { tipster_note_es, help_text_es, org_type, category_description, ...out } = r;
-  const cat = localizeCategory({ name: out.category as string, description: category_description as string }, lang, org_type);
+  const cat = localizeCategory({ name: out.category, description: category_description }, lang, org_type);
   return {
     ...out,
     category: cat.name,

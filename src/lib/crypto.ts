@@ -5,15 +5,30 @@ import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, 
 export const hashSecret = (plain: string) => hash(plain);
 
 let dummy: Promise<string> | undefined;
+function dummyHash(): Promise<string> {
+  dummy ??= hash('opentip-dummy');
+  return dummy;
+}
 /** Verifies even when there is no hash, so "no such TIP ID" costs the same time as "wrong passcode". */
 export async function verifySecret(stored: string | null | undefined, plain: string): Promise<boolean> {
   try {
-    const ok = await verify(stored ?? (await (dummy ??= hash('opentip-dummy'))), plain);
+    const ok = await verify(stored ?? (await dummyHash()), plain);
     return ok && !!stored;
   } catch {
     return false;
   }
 }
+
+// Passcodes are short by design (4 words = 36 bits), so they are keyed with APP_SECRET before the slow hash: a leaked database alone
+// cannot be cracked offline. The "p1:" marker tells these from plain argon2 hashes written before the key existed.
+// Rotating APP_SECRET therefore locks tipsters out of their tips (see SECURITY.md).
+const PEPPERED = 'p1:';
+const pepper = (plain: string) => createHmac('sha256', `opentip-passcode:${secret()}`).update(plain).digest('base64url');
+export const hashPasscode = async (plain: string) => PEPPERED + (await hash(pepper(plain)));
+export const isPeppered = (stored: string) => stored.startsWith(PEPPERED);
+/** Like verifySecret, for passcodes: still exactly one argon2 verification whichever kind of hash is stored. */
+export const verifyPasscode = (stored: string | null | undefined, plain: string) =>
+  stored?.startsWith(PEPPERED) ? verifySecret(stored.slice(PEPPERED.length), pepper(plain)) : verifySecret(stored, plain);
 
 export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 export const randomToken = () => randomBytes(32).toString('base64url');

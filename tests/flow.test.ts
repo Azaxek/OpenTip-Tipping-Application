@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import sharp from 'sharp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { system, withOrg } from '@/lib/db';
+import { system } from '@/lib/db';
 import { escalate } from '@/lib/escalation';
 import { getStorage } from '@/lib/storage';
 import { getTipStatus, listTipsterMessages, postTipsterMessage, revealClaimCode, tipsterLogin, createTip } from '@/lib/tipster';
@@ -40,7 +40,9 @@ describe('tipster -> reviewer flow', () => {
     const detail = await getTipDetail(admin, (await listQueue(admin))[0].id);
     expect(detail!.tip.high_risk).toBe(true);
     expect(detail!.tipTeamIds).toHaveLength(2);
-    expect(detail!.tip.passcode_hash).toBeUndefined();
+    // The secret hashes are never even selected for the reviewer's view.
+    expect(detail!.tip).not.toHaveProperty('passcode_hash');
+    expect(detail!.tip).not.toHaveProperty('claim_code_hash');
 
     const tipUuid = detail!.tip.id;
     await sendReviewerMessage(admin, tipUuid, 'Thanks - can you tell us more?');
@@ -69,9 +71,10 @@ describe('tipster -> reviewer flow', () => {
     const counselor = await makeReviewer(org, ['Counseling']);
     await submit(org, 'Self-Harm/Suicide Concern'); // Counseling + Administration
     await submit(org, 'Theft'); // School Resource Officer + Administration
-    expect((await listQueue(counselor)).map((t: any) => t.category)).toEqual(['Self-Harm/Suicide Concern']);
+    expect((await listQueue(counselor)).map((t) => t.category)).toEqual(['Self-Harm/Suicide Concern']);
     expect(await listQueue(admin)).toHaveLength(2);
-    const theft = (await listQueue(admin)).find((t: any) => t.category === 'Theft');
+    const theft = (await listQueue(admin)).find((t) => t.category === 'Theft');
+    if (!theft) throw new Error('the Theft tip should be in the admin queue');
     expect(await getTipDetail(counselor, theft.id)).toBeNull();
     await expect(sendReviewerMessage(counselor, theft.id, 'hi')).rejects.toThrow('Tip not found');
     const counsel = await system((q) => q<any>("select id from teams where org_id = $1 and name = 'Counseling'", [org.id]));
