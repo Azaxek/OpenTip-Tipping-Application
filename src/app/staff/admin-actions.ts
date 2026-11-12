@@ -6,38 +6,46 @@ import { audit } from '@/lib/audit';
 import { deleteBulletin, saveBulletin } from '@/lib/bulletins';
 import { sendTestAlert } from '@/lib/escalation';
 import { storageSelfTest } from '@/lib/storage';
+import { type FlashKind, flash, redirectWithFlash } from '@/lib/flash';
 import { describeZodError } from '@/lib/form-errors';
-import { hashSecret, verifySecret } from '@/lib/crypto';
+import { UnsafeUrlError, assertPublicHttpsUrl } from '@/lib/outbound';
+import { hashSecret } from '@/lib/crypto';
 import { withOrg, type Q } from '@/lib/db';
 import { StaffInputError, isUuid } from '@/lib/queue';
 import { SisError, csvConnector, syncLocations } from '@/lib/sis';
 import { isTimeZone } from '@/lib/time';
 import { parseKeywords } from '@/lib/watch';
 import { confirmTwoStep, disableTwoStep, resetTwoStep, startTwoStep } from '@/lib/two-step';
-import { requireAdmin, requireStaff } from '@/lib/session';
+import { rateLimit } from '@/lib/ratelimit';
+import { headerRequest, requireAdmin, requireStaff, sessionCookieValue } from '@/lib/session';
+import { changePassword } from '@/lib/staff';
 import type { Staff } from '@/lib/staff';
+import { withoutNul } from '@/lib/text';
 
-const str = (fd: FormData, k: string) => String(fd.get(k) ?? '').trim();
+const str = (fd: FormData, k: string) => withoutNul(String(fd.get(k) ?? '')).trim();
 const flag = (fd: FormData, k: string) => fd.get(k) === 'on' || fd.get(k) === '1';
 const ids = (fd: FormData, k: string) => fd.getAll(k).map(String).filter(isUuid);
 
 /** Admin-only mutation in one org-scoped transaction, audited, with problems surfaced as a ?e= banner. */
-async function adminRun(back: string, action: string, fn: (s: Staff, q: Q) => Promise<object | void>, ok?: string) {
+async function adminRun(back: string, action: string, fn: (s: Staff, q: Q) => Promise<unknown>, ok?: string) {
   const s = await requireAdmin();
   let err = '';
   try {
     await withOrg(s.orgId, async (q) => {
       const detail = await fn(s, q);
-      await audit(q, s, action, null, detail || null);
+      await audit(q, s, action, null, typeof detail === 'object' ? detail : null); // whatever the action returns becomes the audit detail
     });
-  } catch (e: any) {
-    if (e instanceof StaffInputError || e instanceof z.ZodError) err = e instanceof z.ZodError ? describeZodError(e, LABELS) : e.message;
-    else if (e?.code === '23505') err = 'That name or email is already in use.';
-    else if (e?.code === '23503') err = 'That item is still in use and cannot be removed. Deactivate it instead.';
+  } catch (e) {
+    const pgCode = (e as { code?: string } | null)?.code; // Postgres SQLSTATE: 23505 unique violation, 23503 foreign key violation
+    if (e instanceof z.ZodError) err = describeZodError(e, LABELS);
+    else if (e instanceof StaffInputError) err = e.message;
+    else if (pgCode === '23505') err = 'That name or email is already in use.';
+    else if (pgCode === '23503') err = 'That item is still in use and cannot be removed. Deactivate it instead.';
     else throw e;
   }
   revalidatePath('/staff', 'layout');
-  redirect(`${back}?${err ? `e=${encodeURIComponent(err)}` : ok ? `ok=${encodeURIComponent(ok)}` : 'ok=Saved'}`);
+  if (err) redirectWithFlash(back, 'e', err);
+  redirectWithFlash(back, 'ok', ok ?? 'Saved');
 }
 
 const LABELS: Record<string, string> = {
@@ -77,6 +85,14 @@ const Org = z.object({
 export async function saveOrgAction(fd: FormData) {
   await adminRun('/staff/settings', 'settings.org', async (s, q) => {
     const d = Org.parse(Object.fromEntries(fd));
+    if (d.escalation_webhook_url) {
+      try {
+        await assertPublicHttpsUrl(d.escalation_webhook_url);
+      } catch (e) {
+        if (e instanceof UnsafeUrlError) throw new StaffInputError(`Slack / Discord webhook URL: ${e.message}`);
+        throw e;
+      }
+    }
     await q(
       `update organizations set name=$1, hotline=$2, primary_color=$3, max_reward_cents=$4, retention_days=$5, audit_retention_days=$6,
          backup_retention_days=$7, image_mb=$8, doc_mb=$9, av_mb=$10, tip_mb=$11, max_files=$12, escalation_email_mode=$13, escalation_webhook_url=$14, tipster_note=$15, help_text=$16,
@@ -95,14 +111,14 @@ export async function testAlertAction() {
   const s = await requireAdmin();
   const r = await sendTestAlert(s);
   const detail = `email: ${CHANNEL_WORDS[r.email]} (${r.recipients} on-call recipient${r.recipients === 1 ? '' : 's'}); chat webhook: ${CHANNEL_WORDS[r.webhook]}`;
-  redirect(`/staff/settings?${r.delivered ? 'ok' : 'e'}=${encodeURIComponent(r.delivered ? `Test alert sent. ${detail}.` : `The test alert was NOT delivered anywhere. ${detail}. Fix this before you rely on Escalate.`)}`);
+  redirectWithFlash('/staff/settings', r.delivered ? 'ok' : 'e', r.delivered ? `Test alert sent. ${detail}.` : `The test alert was NOT delivered anywhere. ${detail}. Fix this before you rely on Escalate.`);
 }
 
 /** Admin-only: writes, reads and deletes a tiny test file so wrong storage keys are found before a tipster hits them. */
 export async function testStorageAction() {
   await requireAdmin();
   const r = await storageSelfTest();
-  redirect(`/staff/settings?${r.ok ? 'ok' : 'e'}=${encodeURIComponent(r.message)}`);
+  redirectWithFlash('/staff/settings', r.ok ? 'ok' : 'e', r.message);
 }
 
 // ---- Taxonomy: categories, locations, teams ----
@@ -147,10 +163,10 @@ export async function importLocationsAction(fd: FormData) {
   try {
     if (!(file instanceof File) || file.size === 0 || file.size > 1_000_000) throw new SisError('Choose a CSV file under 1 MB.');
     const r = await syncLocations(s, csvConnector(await file.text()));
-    msg = `ok=${encodeURIComponent(`Imported: ${r.added} added, ${r.updated} updated, ${r.deactivated} deactivated.`)}`;
+    msg = flash('ok', `Imported: ${r.added} added, ${r.updated} updated, ${r.deactivated} deactivated.`);
   } catch (e) {
     if (!(e instanceof SisError)) throw e;
-    msg = `e=${encodeURIComponent(e.message)}`;
+    msg = flash('e', e.message);
   }
   revalidatePath('/staff/settings/taxonomy');
   redirect(`/staff/settings/taxonomy?${msg}`);
@@ -267,25 +283,25 @@ export async function saveBulletinAction(_prev: unknown, fd: FormData): Promise<
     throw e;
   }
   revalidatePath('/wanted');
-  redirect('/staff/bulletins?ok=' + encodeURIComponent('Bulletin saved.'));
+  redirectWithFlash('/staff/bulletins', 'ok', 'Bulletin saved.');
 }
 
 export async function deleteBulletinAction(fd: FormData) {
   const s = await requireAdmin();
-  let msg = 'ok=' + encodeURIComponent('Bulletin deleted.');
+  let msg = flash('ok', 'Bulletin deleted.');
   try {
     await deleteBulletin(s, str(fd, 'id'));
   } catch (e) {
     if (!(e instanceof StaffInputError)) throw e;
-    msg = 'e=' + encodeURIComponent(e.message);
+    msg = flash('e', e.message);
   }
   revalidatePath('/wanted');
-  redirect('/staff/bulletins?' + msg);
+  redirect(`/staff/bulletins?${msg}`);
 }
 
 // ---- Two-step sign-in ----
 
-const accountFlash = (kind: 'ok' | 'e', msg: string): never => redirect(`/staff/account?${kind}=${encodeURIComponent(msg)}`);
+const accountFlash = (kind: FlashKind, msg: string) => redirectWithFlash('/staff/account', kind, msg);
 
 export async function startTwoStepAction() {
   await startTwoStep(await requireStaff());
@@ -317,12 +333,12 @@ export async function disableTwoStepAction(fd: FormData) {
 
 export async function resetTwoStepAction(fd: FormData) {
   const s = await requireAdmin();
-  let msg = 'ok=' + encodeURIComponent('Two-step sign-in cleared and that person was signed out. They sign in with their password and can set it up again.');
+  let msg = flash('ok', 'Two-step sign-in cleared and that person was signed out. They sign in with their password and can set it up again.');
   try {
     await resetTwoStep(s, str(fd, 'id'));
   } catch (e) {
     if (!(e instanceof StaffInputError)) throw e;
-    msg = 'e=' + encodeURIComponent(e.message);
+    msg = flash('e', e.message);
   }
   revalidatePath('/staff/settings/people');
   redirect(`/staff/settings/people?${msg}`);
@@ -333,17 +349,12 @@ export async function changePasswordAction(fd: FormData) {
   const s = await requireStaff();
   const next = String(fd.get('next') ?? '');
   let msg: string;
-  if (next.length < 10) msg = 'e=' + encodeURIComponent('The new password needs at least 10 characters.');
+  // Guessing the current password from a borrowed session is the one way in here, so attempts are limited per person.
+  if (rateLimit(await headerRequest(), 'password-change', 5, 15 * 60_000, s.id)) msg = flash('e', 'Too many attempts. Please wait 15 minutes.');
+  else if (next.length < 10 || next.length > 200) msg = flash('e', 'The new password needs 10 to 200 characters.');
   else {
-    const nextHash = await hashSecret(next);
-    const ok = await withOrg(s.orgId, async (q) => {
-      const row = (await q<{ password_hash: string }>('select password_hash from reviewers where id = $1', [s.id]))[0];
-      if (!(await verifySecret(row?.password_hash, String(fd.get('current') ?? '')))) return false;
-      await q('update reviewers set password_hash = $1 where id = $2', [nextHash, s.id]);
-      await audit(q, s, 'auth.password_change');
-      return true;
-    });
-    msg = ok ? 'ok=' + encodeURIComponent('Password changed.') : 'e=' + encodeURIComponent('Your current password is not correct.');
+    const ok = await changePassword(s, await sessionCookieValue(), String(fd.get('current') ?? '').slice(0, 256), next);
+    msg = ok ? flash('ok', 'Password changed. Every other device was signed out.') : flash('e', 'Your current password is not correct.');
   }
   redirect(`/staff/account?${msg}`);
 }

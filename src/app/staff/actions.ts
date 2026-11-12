@@ -2,6 +2,7 @@
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { escalate } from '@/lib/escalation';
+import { flash, redirectWithFlash } from '@/lib/flash';
 import { getOrg } from '@/lib/org';
 import { logPhoneTip } from '@/lib/phone-tip';
 import {
@@ -10,6 +11,7 @@ import {
 import { rateLimit } from '@/lib/ratelimit';
 import { clearSessionCookie, headerRequest, requireStaff, sessionCookieValue, setSessionCookie } from '@/lib/session';
 import { staffLogout, staffSignIn, type Staff } from '@/lib/staff';
+import { withoutNul } from '@/lib/text';
 import { verifyTurnstile } from '@/lib/turnstile';
 
 export async function loginAction(email: string, password: string, turnstileToken: string, code?: string): Promise<{ error?: string; needCode?: boolean }> {
@@ -20,7 +22,7 @@ export async function loginAction(email: string, password: string, turnstileToke
   if (!org) redirect('/setup');
   const r = await staffSignIn(org.id, email, password, code);
   if (r && 'needCode' in r) return { needCode: true };
-  if (!r) return { error: `${code ? 'That email, password or code was not accepted.' : 'Wrong email or password.'} Accounts lock for 15 minutes after 5 wrong tries.` };
+  if (!r) return { error: `${code ? 'That sign-in was not accepted. A code works once and changes every 30 seconds, so wait for a fresh one.' : 'Wrong email or password.'} Accounts lock for 15 minutes after 5 wrong tries.` };
   await setSessionCookie(r.token);
   redirect('/staff');
 }
@@ -56,11 +58,11 @@ async function run(back: string, fn: (s: Staff) => Promise<unknown>, ok?: string
     else throw e;
   }
   revalidatePath(back);
-  if (err) redirect(`${back}?e=${encodeURIComponent(err)}`);
-  if (ok) redirect(`${back}?ok=${encodeURIComponent(ok)}`); // a short confirmation, so no action ever succeeds silently
+  if (err) redirectWithFlash(back, 'e', err);
+  if (ok) redirectWithFlash(back, 'ok', ok); // a short confirmation, so no action ever succeeds silently
 }
 
-const str = (fd: FormData, k: string) => String(fd.get(k) ?? '');
+const str = (fd: FormData, k: string) => withoutNul(String(fd.get(k) ?? ''));
 const tipPath = (fd: FormData) => `/staff/tips/${str(fd, 'tipId')}`;
 
 export async function sendMessageAction(tipId: string, body: string): Promise<{ error?: string }> {
@@ -83,8 +85,8 @@ export const urgentAction = async (fd: FormData) =>
 /** After a change that can remove your own access (unrouting, reassigning), say so instead of leaving a bare 404. */
 async function leftQueueIfNoAccess(fd: FormData, what: string) {
   const s = await requireStaff();
-  if (!(await canView(s, str(fd, 'tipId')))) redirect(`/staff?ok=${encodeURIComponent(`${what} You no longer have access to that tip, so it has left your queue.`)}`);
-  redirect(`${tipPath(fd)}?ok=${encodeURIComponent(what)}`);
+  if (!(await canView(s, str(fd, 'tipId')))) redirectWithFlash('/staff', 'ok', `${what} You no longer have access to that tip, so it has left your queue.`);
+  redirectWithFlash(tipPath(fd), 'ok', what);
 }
 export async function assignAction(fd: FormData) {
   await run(tipPath(fd), (s) => assignTip(s, str(fd, 'tipId'), str(fd, 'reviewerId') || null));
@@ -108,7 +110,7 @@ export async function escalateAction(fd: FormData) {
     qs = r.email === 'simulated' ? `?esc=sim&n=${r.recipients}` : r.delivered ? '?esc=ok' : `?esc=fail&em=${r.email}&wh=${r.webhook}`;
   } catch (e) {
     if (!(e instanceof StaffInputError)) throw e;
-    qs = `?e=${encodeURIComponent(e.message)}`;
+    qs = `?${flash('e', e.message)}`;
   }
   redirect(`/staff/tips/${id}${qs}`);
 }
@@ -117,5 +119,5 @@ export async function redeemAction(fd: FormData) {
   const s = await requireStaff();
   const r = await redeemClaim(s, str(fd, 'tipId'), str(fd, 'code'));
   revalidatePath('/staff/rewards');
-  redirect(`/staff/rewards?${r.ok ? 'ok' : 'e'}=${encodeURIComponent(r.message)}`);
+  redirectWithFlash('/staff/rewards', r.ok ? 'ok' : 'e', r.message);
 }
