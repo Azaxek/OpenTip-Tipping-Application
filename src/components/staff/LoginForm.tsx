@@ -27,6 +27,7 @@ export function LoginForm({ siteKey }: { siteKey?: string }) {
       {needCode && (
         <div>
           <label className="label" htmlFor="code">Authenticator code</label>
+          {/* biome-ignore lint/a11y/noAutofocus: this field only appears after the password step, so moving focus to it is what the person needs */}
           <input id="code" name="code" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9 ]{6,7}" maxLength={7} className="input text-center font-mono text-xl tracking-widest" required autoFocus />
           <p className="hint">Open your authenticator app and type the 6-digit code for this account. Lost your phone? Ask an administrator to reset your two-step sign-in.</p>
         </div>

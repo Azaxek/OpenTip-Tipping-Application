@@ -9,6 +9,8 @@ export function ChatPanel({ tipId, canned, closed }: { tipId: string; canned: Ca
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState('');
   const [error, setError] = useState('');
+  const [sending, setSending] = useState(false);
+  const inFlight = useRef(false); // a ref, so two taps in the same instant cannot both pass
   const since = useRef(0);
   const box = useRef<HTMLDivElement>(null);
 
@@ -34,15 +36,24 @@ export function ChatPanel({ tipId, canned, closed }: { tipId: string; canned: Ca
     const t = setInterval(() => poll(), 3000);
     return () => clearInterval(t);
   }, [poll]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the message count is the trigger, to keep the newest message in view
   useEffect(() => { box.current?.scrollTo({ top: box.current.scrollHeight }); }, [msgs.length]);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
+    if (inFlight.current) return; // a double tap must not post the reply twice
+    inFlight.current = true;
+    setSending(true);
     setError('');
-    const r = await sendMessageAction(tipId, text);
-    if (r.error) return setError(r.error);
-    setText('');
-    poll();
+    try {
+      const r = await sendMessageAction(tipId, text);
+      if (r.error) return setError(r.error);
+      setText('');
+      poll();
+    } finally {
+      inFlight.current = false;
+      setSending(false);
+    }
   }
 
   return (
@@ -65,7 +76,7 @@ export function ChatPanel({ tipId, canned, closed }: { tipId: string; canned: Ca
         )}
         <textarea className="input min-h-24" maxLength={5000} value={text} onChange={(e) => setText(e.target.value)} placeholder={closed ? 'This tip is closed. Replying will not reopen it.' : 'Write a reply. The tipster sees it live and can answer anonymously.'} aria-label="Reply" />
         {error && <p role="alert" className="text-sm font-semibold text-red-800">{error}</p>}
-        <button className="btn btn-primary" disabled={!text.trim()}>Send reply</button>
+        <button className="btn btn-primary" disabled={!text.trim() || sending}>{sending ? 'Sending…' : 'Send reply'}</button>
       </form>
     </div>
   );

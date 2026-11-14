@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { fmt, type Lang, type Messages } from '@/lib/i18n';
 import { PushOptIn } from './PushOptIn';
 import { useTurnstile } from './Turnstile';
@@ -11,6 +11,7 @@ type Ctx = { lang: Lang; m: Messages };
 const TONE = { new: 'bg-blue-100 text-blue-900', under_review: 'bg-amber-100 text-amber-900', actioned: 'bg-green-100 text-green-900', closed: 'bg-slate-200 text-slate-800' } as const;
 const TOKEN = 'ot_token';
 const POLL_MS = 3000;
+const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
 export function CheckTip({ siteKey, vapidKey, lang, m }: { siteKey?: string; vapidKey?: string } & Ctx) {
   const [token, setToken] = useState<string | null | undefined>(undefined);
@@ -75,14 +76,20 @@ function TipStatus({ token, vapidKey, onEnd, lang, m }: { token: string; vapidKe
   const [status, setStatus] = useState<Status | null>(null);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const sendingRef = useRef(false);
   const [error, setError] = useState('');
   const [code, setCode] = useState('');
   const [poke, setPoke] = useState(0);
-  const auth = { Authorization: `Bearer ${token}` };
+  const auth = bearer(token);
+  // The parent passes a new onEnd every render; a ref keeps the poller from restarting each time while still calling the latest one.
+  const onEndRef = useRef(onEnd);
+  onEndRef.current = onEnd;
   const money = (cents: number | null) => `$${((cents ?? 0) / 100).toFixed(2)}`;
   const label = { new: m.statusNew, under_review: m.statusUnderReview, actioned: m.statusActioned, closed: m.statusClosed } as const;
 
   // Live chat: short polling through our own server (no third-party realtime service sees the connection).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `poke` is a manual restart trigger (bumped after sending a message so the reply shows at once), not a value the effect reads
   useEffect(() => {
     let stop = false;
     let since = 0;
@@ -93,8 +100,8 @@ function TipStatus({ token, vapidKey, onEnd, lang, m }: { token: string; vapidKe
       if (first || !document.hidden) {
         first = false;
         try {
-          const r = await fetch(`/api/tip/messages?since=${since}&lang=${lang}`, { headers: auth, cache: 'no-store' });
-          if (r.status === 401) return onEnd('expired');
+          const r = await fetch(`/api/tip/messages?since=${since}&lang=${lang}`, { headers: bearer(token), cache: 'no-store' });
+          if (r.status === 401) return onEndRef.current('expired');
           if (r.ok && !stop) {
             const j = await r.json();
             setStatus(j.status);
@@ -115,12 +122,13 @@ function TipStatus({ token, vapidKey, onEnd, lang, m }: { token: string; vapidKe
     const wake = () => { if (!document.hidden) { clearTimeout(timer); tick(); } };
     document.addEventListener('visibilitychange', wake);
     return () => { stop = true; clearTimeout(timer); document.removeEventListener('visibilitychange', wake); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token, poke]);
+  }, [token, poke, lang]);
 
   async function send(e: React.FormEvent) {
     e.preventDefault();
-    if (!text.trim()) return;
+    if (!text.trim() || sendingRef.current) return; // a second tap while the first is on its way must not send it twice
+    sendingRef.current = true;
+    setSending(true);
     setError('');
     try {
       const r = await fetch('/api/tip/messages', { method: 'POST', headers: { ...auth, 'Content-Type': 'application/json' }, body: JSON.stringify({ body: text }) });
@@ -128,6 +136,9 @@ function TipStatus({ token, vapidKey, onEnd, lang, m }: { token: string; vapidKe
       else setError(r.status === 429 ? m.errRate : (lang === 'en' && (await r.json().catch(() => ({}))).error) || m.sendFail);
     } catch {
       setError(m.errOffline);
+    } finally {
+      sendingRef.current = false;
+      setSending(false);
     }
   }
 
@@ -187,7 +198,7 @@ function TipStatus({ token, vapidKey, onEnd, lang, m }: { token: string; vapidKe
           <label className="label" htmlFor="msg">{m.yourMessage}</label>
           <textarea id="msg" className="input min-h-20" maxLength={5000} value={text} onChange={(e) => setText(e.target.value)} />
           {error && <p role="alert" className="text-sm font-semibold text-red-800">{error}</p>}
-          <button className="btn btn-primary" disabled={!text.trim()}>{m.send}</button>
+          <button className="btn btn-primary" disabled={!text.trim() || sending}>{m.send}</button>
         </form>
       </div>
 

@@ -4,7 +4,7 @@ export function HBars({ rows, empty = 'No data in this range.' }: { rows: { labe
   const max = Math.max(1, ...rows.map((r) => r.value));
   if (!rows.length) return <p className="text-sm text-slate-600">{empty}</p>;
   return (
-    <ul className="space-y-1.5" role="list">
+    <ul className="space-y-1.5">
       {rows.map((r) => (
         <li key={r.label} className="grid grid-cols-[minmax(0,10rem)_1fr_2.5rem] items-center gap-2 text-sm">
           <span className="truncate" title={r.label}>{r.label}</span>

@@ -73,6 +73,7 @@ export function SubmitWizard(props: {
   useEffect(() => { setGenerated(newPassphrase()); }, []); // client-only so server and browser markup agree
 
   // Draft lives in sessionStorage only (cleared when the tab closes) - never localStorage, since devices can be shared.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: restore once on mount; later changes to `steps` must not overwrite what the person typed
   useEffect(() => {
     try {
       const d = JSON.parse(sessionStorage.getItem(DRAFT) || '{}');
@@ -111,6 +112,7 @@ export function SubmitWizard(props: {
   // Keyboard and screen-reader users: move focus to the new step so it is announced.
   const stepRef = useRef<HTMLDivElement>(null);
   const firstRender = useRef(true);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: `i` is the trigger (the step changed), not a value the effect reads
   useEffect(() => {
     if (firstRender.current) { firstRender.current = false; return; }
     stepRef.current?.focus();
@@ -252,7 +254,7 @@ export function SubmitWizard(props: {
                     <li key={previews[n]} className="flex items-center gap-3 rounded-lg border border-slate-200 p-2">
                       {mt.startsWith('image/') && /* eslint-disable-next-line @next/next/no-img-element */ <img src={previews[n]} alt={m.previewAlt} className="size-16 rounded object-cover" />}
                       {mt.startsWith('video/') && <video src={previews[n]} className="size-16 rounded object-cover" muted />}
-                      {mt.startsWith('audio/') && <audio src={previews[n]} controls className="h-10 w-48" />}
+                      {mt.startsWith('audio/') && <audio src={previews[n]} controls className="h-10 w-48"><track kind="captions" /></audio>}
                       {mt === 'application/pdf' && <span className="grid size-16 place-items-center rounded bg-slate-100 text-xs font-bold">PDF</span>}
                       <span className="flex-1 text-sm">{(f.size / 1048576).toFixed(1)} MB</span>
                       <button type="button" className="btn" onClick={() => setFiles(files.filter((_, k) => k !== n))}>{m.remove}</button>
@@ -279,7 +281,7 @@ export function SubmitWizard(props: {
               {mode === 'auto' ? (
                 <div className="space-y-2 rounded-lg border-2 border-amber-500 bg-amber-50 p-4">
                   <p className="text-sm font-semibold">{m.passYours}</p>
-                  <p className="break-all font-mono text-2xl font-bold" data-testid="generated-passcode">{generated}</p>
+                  <p className="break-words font-mono text-2xl font-bold" data-testid="generated-passcode">{generated}</p>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" className="btn" onClick={() => navigator.clipboard?.writeText(generated).then(() => setCopied(true))}>{copied ? m.passCopied : m.passCopy}</button>
                     <button type="button" className="btn" onClick={() => { setGenerated(newPassphrase()); setCopied(false); }}>{m.passAnother}</button>
@@ -290,11 +292,11 @@ export function SubmitWizard(props: {
                 <div className="space-y-3">
                   <div>
                     <label className="label" htmlFor="pc">{m.passLabel}</label>
-                    <input id="pc" className="input" type={showPass ? 'text' : 'password'} autoComplete="off" minLength={6} maxLength={128} value={passcode} onChange={(e) => setPasscode(e.target.value)} />
+                    <input id="pc" className="input" type={showPass ? 'text' : 'password'} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} minLength={6} maxLength={128} value={passcode} onChange={(e) => setPasscode(e.target.value)} />
                   </div>
                   <div>
                     <label className="label" htmlFor="pc2">{m.passAgain}</label>
-                    <input id="pc2" className="input" type={showPass ? 'text' : 'password'} autoComplete="off" value={confirm} onChange={(e) => setConfirm(e.target.value)} />
+                    <input id="pc2" className="input" type={showPass ? 'text' : 'password'} autoComplete="off" autoCapitalize="none" autoCorrect="off" spellCheck={false} value={confirm} onChange={(e) => setConfirm(e.target.value)} />
                   </div>
                   <label className="flex items-center gap-2 text-sm"><input type="checkbox" className="size-4" checked={showPass} onChange={(e) => setShowPass(e.target.checked)} /> {m.showPass}</label>
                 </div>
@@ -330,7 +332,7 @@ function Receipt({ r, lang, m, orgName, vapidKey, note, helpText }: { r: Result;
         <p className="font-bold text-amber-900">{m.receiptSave}</p>
         <dl className="mt-3 space-y-2">
           <div><dt className="text-sm font-semibold">{m.tipIdLabel}</dt><dd className="font-mono text-3xl font-bold tracking-wider" data-testid="tip-id">{r.tipId}</dd></div>
-          <div><dt className="text-sm font-semibold">{m.passcodeLabel}</dt><dd className="break-all font-mono text-xl font-bold" data-testid="receipt-passcode">{r.passcode}</dd></div>
+          <div><dt className="text-sm font-semibold">{m.passcodeLabel}</dt><dd className="break-words font-mono text-xl font-bold" data-testid="receipt-passcode">{r.passcode}</dd></div>
         </dl>
         <div className="mt-3 flex flex-wrap gap-2">
           <button className="btn" onClick={() => navigator.clipboard?.writeText(`${m.tipIdLabel}: ${r.tipId}\n${m.passcodeLabel}: ${r.passcode}`).then(() => setCopied(true))}>{copied ? m.copied : m.copy}</button>
