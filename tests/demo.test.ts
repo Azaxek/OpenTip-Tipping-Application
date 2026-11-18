@@ -100,4 +100,11 @@ describe('simulated escalation (demo only)', () => {
     const [t] = await listQueue(admin);
     expect((await escalate(admin, t.id)).delivered).toBe(false);
   });
+
+  it('will not load demo logins into a database that holds a real program', async () => {
+    vi.stubEnv('DEMO_MODE', '1');
+    vi.stubEnv('STORAGE_DRIVER', 'db');
+    await makeOrg('campus');
+    await expect(resetDemo()).rejects.toThrow('real program');
+  });
 });

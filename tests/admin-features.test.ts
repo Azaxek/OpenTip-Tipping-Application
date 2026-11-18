@@ -2,7 +2,7 @@ import { PDFDocument } from 'pdf-lib';
 import sharp from 'sharp';
 import { describe, expect, it } from 'vitest';
 import { report } from '@/lib/analytics';
-import { staffFromToken, staffLogin, staffLogout } from '@/lib/staff';
+import { changePassword, staffFromToken, staffLogin, staffLogout } from '@/lib/staff';
 import { reportCsv, reportPdf } from '@/lib/export';
 import { defaultLetter, letterPdf, posterPdf, qrPng } from '@/lib/materials';
 import { listQueue } from '@/lib/queue';
@@ -43,6 +43,20 @@ describe('staff authentication', () => {
     const token = (await staffLogin(org.id, adminEmail, 'correct horse battery'))!;
     await system((q) => q("update sessions set expires_at = now() - interval '1 minute' where org_id = $1", [org.id]));
     expect(await staffFromToken(token)).toBeNull();
+  });
+
+  it('changing your own password signs out every other session but not the one in use', async () => {
+    const { org, adminEmail } = await makeOrg('campus');
+    const here = (await staffLogin(org.id, adminEmail, 'correct horse battery'))!;
+    const elsewhere = (await staffLogin(org.id, adminEmail, 'correct horse battery'))!;
+    const me = (await staffFromToken(here))!;
+    expect(await changePassword(me, here, 'not my password', 'a brand new password')).toBe(false);
+    expect(await staffFromToken(elsewhere)).not.toBeNull(); // a wrong current password changes nothing
+    expect(await changePassword(me, here, 'correct horse battery', 'a brand new password')).toBe(true);
+    expect(await staffFromToken(elsewhere)).toBeNull();
+    expect(await staffFromToken(here)).not.toBeNull();
+    expect(await staffLogin(org.id, adminEmail, 'correct horse battery')).toBeNull();
+    expect(await staffLogin(org.id, adminEmail, 'a brand new password')).toBeTruthy();
   });
 });
 

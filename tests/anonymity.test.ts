@@ -79,7 +79,7 @@ describe('secrets and identifiers', () => {
     const { org } = await makeOrg('crime_stoppers');
     await createTip(org, { categoryId: await categoryId(org, 'Fraud'), description: 'x', passcode: 'plain-text-passcode' });
     const row = (await system((q) => q<any>('select passcode_hash from tips where org_id = $1', [org.id])))[0];
-    expect(row.passcode_hash).toMatch(/^\$argon2id\$/);
+    expect(row.passcode_hash).toMatch(/^p1:\$argon2id\$/); // argon2id over a server-keyed form of the passcode
     expect(row.passcode_hash).not.toContain('plain-text-passcode');
   });
 

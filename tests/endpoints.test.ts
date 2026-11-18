@@ -127,4 +127,14 @@ describe('cron purge endpoint', () => {
     expect((await get('Bearer wrong-secret-value')).status).toBe(401);
     expect((await get('Bearer cron-secret-value')).status).toBe(200);
   });
+
+  it('keeps running the retention purge when DEMO_MODE is left on beside a real program', async () => {
+    await makeOrg('campus');
+    vi.stubEnv('CRON_SECRET', 'cron-secret-value');
+    vi.stubEnv('DEMO_MODE', '1');
+    const res = await purgeCron(new Request('http://localhost/api/cron/purge', { headers: { authorization: 'Bearer cron-secret-value' } }));
+    const body = await res.json();
+    expect(body).toHaveProperty('tips');
+    expect(body).not.toHaveProperty('demo');
+  });
 });

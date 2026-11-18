@@ -5,6 +5,7 @@ import { orgInTx } from '@/lib/org';
 import { readiness } from '@/lib/readiness';
 import { requireAdmin } from '@/lib/session';
 import { allTimeZones } from '@/lib/time';
+import { DEMO_SLUG } from '@/lib/url';
 import { saveOrgAction, testAlertAction, testStorageAction } from '../../admin-actions';
 
 export const metadata = { title: 'Settings' };
@@ -13,7 +14,7 @@ export default async function Settings({ searchParams }: { searchParams: Promise
   const s = await requireAdmin();
   const sp = await searchParams;
   const org = await withOrg(s.orgId, (q) => orgInTx(q));
-  const checks = readiness();
+  const checks = readiness({ realProgram: org.slug !== DEMO_SLUG });
   const f = (label: string, name: string, value: string | number, extra: Record<string, unknown> = {}, hint?: string) => (
     <div>
       <label className="label" htmlFor={name}>{label}</label>
