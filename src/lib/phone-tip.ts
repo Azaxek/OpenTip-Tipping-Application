@@ -18,7 +18,12 @@ export async function logPhoneTip(s: Staff, input: PhoneTipInput): Promise<{ tip
   const passcode = newPassphrase();
   try {
     const r = await createTip(org, { ...input, passcode, source: 'phone' });
-    await withOrg(s.orgId, (q) => audit(q, s, 'tip.manual', r.tipId));
+    await withOrg(s.orgId, async (q) => {
+      // The caller has not written anything in the chat, so nobody "owes them a reply". Without this the tip would show as
+      // "Awaiting reply" and turn red as overdue a day later, which is noise: it is triaged through its New status instead.
+      await q('update tips set needs_reply = false, waiting_since = null where tip_id = $1', [r.tipId]);
+      await audit(q, s, 'tip.manual', r.tipId);
+    });
     return { tipId: r.tipId, passcode };
   } catch (e) {
     if (e instanceof InputError) throw new StaffInputError(e.message);
