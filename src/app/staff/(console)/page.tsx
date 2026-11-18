@@ -1,9 +1,10 @@
 import Link from 'next/link';
 import { AutoRefresh } from '@/components/staff/AutoRefresh';
+import { GettingStarted } from '@/components/staff/GettingStarted';
 import { Flash, PageTitle, StatusBadge, UrgentBadge, Waiting, ago } from '@/components/staff/ui';
 import { withOrg } from '@/lib/db';
 import { orgInTx } from '@/lib/org';
-import { listQueue, type QueueFilter } from '@/lib/queue';
+import { QUEUE_LIMIT, listQueue, queueCounts, type QueueFilter, type QueueRow } from '@/lib/queue';
 import { requireStaff } from '@/lib/session';
 
 export const metadata = { title: 'Queue' };
@@ -18,13 +19,8 @@ export default async function Queue({ searchParams }: { searchParams: Promise<SP
     urgent: sp.urgent === '1', needsReply: sp.needs === '1', sort: (['newest', 'oldest'] as const).find((x) => x === sp.sort) ?? 'priority',
   };
   const tips = await listQueue(s, f);
-  const everyOpen = await listQueue(s, {}); // unfiltered, for the tab counts
-  const count = {
-    open: everyOpen.length,
-    needs: everyOpen.filter((t: any) => t.needs_reply).length,
-    urgent: everyOpen.filter((t: any) => t.priority).length,
-    mine: everyOpen.filter((t: any) => t.assigned_reviewer_id === s.id).length,
-  };
+  const counts = await queueCounts(s); // exact, independent of how many rows the list below shows
+  const count = { open: counts.open, needs: counts.needsReply, urgent: counts.priority, mine: counts.mine };
   const { opts, org } = await withOrg(s.orgId, async (q) => ({
     org: await orgInTx(q),
     opts: {
@@ -49,7 +45,7 @@ export default async function Queue({ searchParams }: { searchParams: Promise<SP
   const keep = Object.entries(sp).filter(([k, v]) => v && k !== 'q' && k !== 'e' && k !== 'ok');
   const sel = 'input !py-1.5 text-sm';
 
-  const badges = (t: any) => (
+  const badges = (t: QueueRow) => (
     <span className="inline-flex flex-wrap gap-1 align-middle">
       {t.priority && t.status !== 'closed' && <UrgentBadge />}
       {t.watch && t.status !== 'closed' && <span className="badge bg-orange-100 text-orange-900" title="Matched your keyword watch list">Watch list</span>}
@@ -66,6 +62,7 @@ export default async function Queue({ searchParams }: { searchParams: Promise<SP
         <Link href="/staff/tips/new" className="btn !min-h-9 text-sm" data-tour="phone-tip">+ Log a phone or walk-in tip</Link>
       </div>
       <Flash e={sp.e} ok={sp.ok} />
+      <GettingStarted staff={s} />
 
       <form method="get" role="search" className="flex gap-2" data-tour="search">
         {keep.map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
@@ -126,7 +123,7 @@ export default async function Queue({ searchParams }: { searchParams: Promise<SP
                   <tr><th scope="col" className="p-3">Tip</th><th scope="col" className="p-3">Category</th><th scope="col" className="p-3">Location</th><th scope="col" className="p-3">Assigned</th><th scope="col" className="p-3">Status</th><th scope="col" className="p-3">Received</th></tr>
                 </thead>
                 <tbody>
-                  {tips.map((t: any) => (
+                  {tips.map((t) => (
                     <tr key={t.id} className={`border-b border-slate-100 hover:bg-slate-50 ${t.priority && t.status !== 'closed' ? 'bg-red-50/60' : ''}`}>
                       <td className="p-3"><Link href={`/staff/tips/${t.id}`} className="link font-mono">{t.tip_id}</Link> {badges(t)}</td>
                       <td className="p-3">{t.category}</td>
@@ -141,7 +138,7 @@ export default async function Queue({ searchParams }: { searchParams: Promise<SP
             </div>
 
             <ul className="space-y-2 md:hidden">
-              {tips.map((t: any) => (
+              {tips.map((t) => (
                 <li key={t.id}>
                   <Link href={`/staff/tips/${t.id}`} className={`card block !p-3 no-underline ${t.priority && t.status !== 'closed' ? 'border-red-300 bg-red-50/60' : ''}`}>
                     <span className="flex items-center justify-between gap-2"><span className="font-mono font-bold text-blue-800">{t.tip_id}</span><StatusBadge status={t.status} /></span>
@@ -156,7 +153,7 @@ export default async function Queue({ searchParams }: { searchParams: Promise<SP
         )}
       </div>
       <p className="text-xs text-slate-600">
-        {tips.length >= 300 ? 'Showing the first 300 tips. Use search or filters to narrow down. ' : ''}
+        {tips.length >= QUEUE_LIMIT ? `Showing the first ${QUEUE_LIMIT} tips. Use search or filters to narrow down. ` : ''}
         You see tips routed to your teams or assigned to you{s.role === 'admin' || s.allTips ? ' — and all tips, because you have broader access' : ''}. This page updates by itself.
       </p>
     </div>

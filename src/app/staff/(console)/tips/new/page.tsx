@@ -15,7 +15,7 @@ export default async function NewPhoneTip() {
   }));
   return (
     <div className="mx-auto max-w-2xl space-y-4">
-      <Link href="/staff" className="link text-sm">← Queue</Link>
+      <Link href="/staff" className="link inline-block py-1 text-sm">← Queue</Link>
       <PageTitle>Log a phone or walk-in tip</PageTitle>
       <p className="-mt-2 text-sm text-slate-700">
         Taking a tip by phone or in person? Type it in here. It joins the queue like any other tip, and the caller gets a TIP ID and passcode so they can check back and chat anonymously, or claim a reward.

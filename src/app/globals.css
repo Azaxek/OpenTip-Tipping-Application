@@ -40,3 +40,17 @@ body {
     @apply font-medium text-blue-800 underline underline-offset-2 hover:text-blue-950;
   }
 }
+
+/* WCAG 2.2 target size (2.5.8): every checkbox and radio is at least 24px square, and a flex row can never squeeze one narrower. */
+input[type='checkbox'],
+input[type='radio'] {
+  min-width: 1.5rem;
+  min-height: 1.5rem;
+  flex-shrink: 0;
+}
+
+/* Disclosure toggles ("More filters") get the same 24px minimum as every other control. */
+summary {
+  min-height: 1.5rem;
+  padding-block: 0.25rem;
+}

@@ -2,6 +2,8 @@
 
 Target: a live, free tip line in about an hour, with no server to maintain. If you can copy and paste values into a web form, you can do this.
 
+> **New to all this?** Follow [`SETUP-GUIDE.md`](SETUP-GUIDE.md), which walks through every click with checkpoints and a troubleshooting table. This page is the shorter, more technical reference.
+
 **You will create free accounts at:** GitHub, Vercel, Neon *or* Supabase, and Cloudflare. Resend (email alerts) is optional.
 
 > Do the whole checklist at the end (“Verify before you announce it”). A tip line that silently fails is worse than none.
@@ -21,6 +23,8 @@ Fork or upload this repository to your own GitHub account. Everything below refe
 ### Option B: Supabase
 1. Create a project. Project Settings → Database → Connection string → **Transaction pooler**.
 2. That is your `DATABASE_URL`. (You do not need Supabase Auth, its client libraries or its API keys: OpenTip only talks to the database.)
+
+The database must use UTF8 encoding (Neon and Supabase do; on your own server create it with `ENCODING 'UTF8'`). The migration stops with a clear message otherwise.
 
 The migration creates a low-privilege database role (`opentip_app`) and every request runs as that role, which is what makes row-level security bite. The connecting user needs permission to create a role; the default owner user on both services has it.
 

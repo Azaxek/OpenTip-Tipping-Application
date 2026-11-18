@@ -84,3 +84,76 @@ export async function letterPdf(org: Org, body: string): Promise<Uint8Array> {
   }
   return doc.save();
 }
+
+export type Announcement = { id: string; title: string; use: string; text: string };
+
+/**
+ * Ready-to-paste texts for launching the tip line: the poster and letter reach people who walk past or are sent something, these reach
+ * the rest (the local paper, a morning announcement, social media, the people who will answer tips). Square brackets mark what only the
+ * program knows and must be filled in before use.
+ */
+export function announcements(org: Org): Announcement[] {
+  const campus = org.org_type === 'campus';
+  const who = campus ? 'students, families and staff' : 'neighbors';
+  const url = submitUrl();
+  const phone = org.hotline ? ` You can also call ${org.hotline}.` : '';
+  const emergency = 'If someone is in danger right now, call 911. This tip line is not watched in real time.';
+  return [
+    {
+      id: 'press',
+      title: 'News release for local media',
+      use: 'Send to the local paper, radio and community newsletters the week you launch.',
+      text: `FOR IMMEDIATE RELEASE
+[DATE]
+
+${org.name} launches a free, anonymous tip line
+
+[CITY] — ${org.name} today announced a free way for ${who} to share safety concerns without giving their name. Tips can be sent any time from a phone or computer at ${url}.
+
+The tip line does not ask for a name or phone number, and the website does not record the device or location of the person sending a tip. After sending, a person receives a TIP ID and a passcode they can use to check back and answer follow-up questions, still anonymously.
+
+"[QUOTE FROM THE DIRECTOR OR PRINCIPAL ABOUT WHY THIS MATTERS]" said [NAME, TITLE].
+
+Tips are reviewed by [WHO REVIEWS TIPS]. ${emergency}${phone}
+
+Media contact: [NAME, EMAIL, PHONE]`,
+    },
+    {
+      id: 'announcement',
+      title: 'Thirty-second announcement',
+      use: 'Read aloud at an assembly, a meeting or on the morning announcements. Say it more than once: people forget.',
+      text: `Quick reminder about something that is here for you. ${org.name} has an anonymous tip line. If you see or hear something that worries you${campus ? ' — bullying, a threat, someone who is hurting' : ''} — you can tell us without giving your name.
+
+Go to ${url}, or scan the code on the posters. There is no account and nothing that says who you are. You get a TIP ID so you can check back and talk with us, still anonymously.
+
+${emergency}`,
+    },
+    {
+      id: 'social',
+      title: 'Social media post',
+      use: 'Short enough for most networks.',
+      text: `See something? Say something. ${org.name}'s tip line is free and anonymous: ${url}. No name, no phone number, no tracking. In an emergency call 911.`,
+    },
+    {
+      id: 'team',
+      title: 'Introduction for the people who answer tips',
+      use: 'Send to everyone you add under People, before launch day.',
+      text: `Subject: You are on the ${org.name} tip line team
+
+Hello,
+
+You can now sign in to the tip line console at ${appUrl()}/staff. Please open Help first (it takes five minutes) and turn on two-step sign-in under your name.
+
+What to expect:
+- You see tips for the teams you belong to. Urgent and high-risk tips are marked in red.
+- Reply to a tipster in the chat. They never see your name. Ask for what you need (where, when, who) and never ask who they are.
+- ${org.response_target_hours ?? 24} hours is our reply target. If a tip is overdue it shows in red.
+- Alert emails never contain what the tipster wrote. They only say a tip arrived, with a link.
+- If someone may be in danger right now, use Escalate now and make sure 911 has been called.
+
+Questions go to [NAME, EMAIL].
+
+${org.name}`,
+    },
+  ];
+}

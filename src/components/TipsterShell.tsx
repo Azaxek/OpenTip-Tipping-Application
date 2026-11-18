@@ -13,16 +13,19 @@ export async function TipsterShell({ org, lang = 'en', path = '/', children }: {
   return (
     <div lang={lang} className="mx-auto flex min-h-screen max-w-2xl flex-col px-4">
       <a href="#main" className="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-50 focus:rounded focus:bg-white focus:p-2 focus:shadow">{m.skipToContent}</a>
-      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 py-2">
+      {/* This row stays in view while the page scrolls, so Quick exit is always one tap away for someone who is not alone. */}
+      <div className="sticky top-0 z-30 -mx-4 flex items-center justify-between gap-3 bg-slate-50/95 px-4 py-1 backdrop-blur">
         <Link href={localHref(lang, '/')} className="inline-flex min-h-11 items-center text-lg font-bold" style={{ color: 'var(--brand)' }}>
           {org.name}
         </Link>
+        <QuickExit label={m.quickExit} title={m.quickExitTitle} />
+      </div>
+      <header className="pb-2">
         <nav className="flex flex-wrap items-center gap-1 text-sm" aria-label={m.navMain}>
           <Link href={localHref(lang, '/submit')} className="link inline-flex min-h-11 items-center px-2">{m.navSubmit}</Link>
           <Link href={localHref(lang, '/check')} className="link inline-flex min-h-11 items-center px-2">{m.navCheck}</Link>
           {hasWanted && <Link href={localHref(lang, '/wanted')} className="link inline-flex min-h-11 items-center px-2">{m.navWanted}</Link>}
           <Link href={localHref(other, path)} lang={other} hrefLang={other} className="link inline-flex min-h-11 items-center px-2">{m.otherLangLabel}</Link>
-          <QuickExit label={m.quickExit} title={m.quickExitTitle} />
         </nav>
       </header>
       <main id="main" tabIndex={-1} className="flex-1 pb-10 outline-none">{children}</main>
